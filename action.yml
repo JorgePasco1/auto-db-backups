@@ -1,0 +1,85 @@
+name: 'Auto DB Backups'
+description: 'Automatically backup PostgreSQL, MySQL, or MongoDB databases to Cloudflare R2 storage'
+author: 'jorgepascosoto'
+branding:
+  icon: 'database'
+  color: 'blue'
+
+inputs:
+  database_type:
+    description: 'Type of database: postgres, mysql, or mongodb'
+    required: true
+  database_host:
+    description: 'Database host address'
+    required: false
+  database_port:
+    description: 'Database port (defaults: postgres=5432, mysql=3306, mongodb=27017)'
+    required: false
+  database_name:
+    description: 'Name of the database to backup'
+    required: false
+  database_user:
+    description: 'Database username'
+    required: false
+  database_password:
+    description: 'Database password'
+    required: false
+  connection_string:
+    description: 'Full database connection string (alternative to individual params)'
+    required: false
+
+  r2_account_id:
+    description: 'Cloudflare account ID for R2'
+    required: true
+  r2_access_key_id:
+    description: 'R2 access key ID'
+    required: true
+  r2_secret_access_key:
+    description: 'R2 secret access key'
+    required: true
+  r2_bucket_name:
+    description: 'R2 bucket name for storing backups'
+    required: true
+  backup_prefix:
+    description: 'Prefix path for backup files in the bucket (e.g., "myapp/prod/")'
+    required: false
+    default: ''
+
+  compression:
+    description: 'Enable gzip compression'
+    required: false
+    default: 'true'
+  encryption_key:
+    description: 'Base64-encoded 32-byte key for AES-256-GCM encryption'
+    required: false
+
+  retention_days:
+    description: 'Delete backups older than N days (0 to disable)'
+    required: false
+    default: '0'
+  retention_count:
+    description: 'Maximum number of backups to keep (0 to disable)'
+    required: false
+    default: '0'
+
+  webhook_url:
+    description: 'Webhook URL for notifications'
+    required: false
+  notify_on_success:
+    description: 'Send webhook notification on successful backup'
+    required: false
+    default: 'true'
+  notify_on_failure:
+    description: 'Send webhook notification on failed backup'
+    required: false
+    default: 'true'
+
+outputs:
+  backup_key:
+    description: 'The full key/path of the backup file in R2'
+  backup_size:
+    description: 'Size of the backup file in bytes'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
