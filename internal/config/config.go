@@ -51,6 +51,10 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{}
 
+	// Debug: log environment variables for R2 (redacted)
+	fmt.Printf("DEBUG: R2_ACCOUNT_ID length: %d\n", len(getInput("r2_account_id")))
+	fmt.Printf("DEBUG: R2_BUCKET_NAME length: %d\n", len(getInput("r2_bucket_name")))
+
 	// Database settings
 	dbType := getInput("database_type")
 	switch strings.ToLower(dbType) {
