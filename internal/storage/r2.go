@@ -52,7 +52,10 @@ func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	client := s3.NewFromConfig(awsCfg)
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		// Use path-style addressing for R2 compatibility
+		o.UsePathStyle = true
+	})
 
 	return &R2Client{
 		client:    client,

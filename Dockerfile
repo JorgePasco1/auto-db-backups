@@ -19,13 +19,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /auto-db-backups .
 # Runtime stage
 FROM alpine:3.20
 
-# Install database clients
+# Install database clients and SSL certificates
 RUN apk add --no-cache \
     postgresql16-client \
     mysql-client \
     mongodb-tools \
     ca-certificates \
-    tzdata
+    tzdata && \
+    update-ca-certificates
 
 # Copy the binary from builder
 COPY --from=builder /auto-db-backups /auto-db-backups

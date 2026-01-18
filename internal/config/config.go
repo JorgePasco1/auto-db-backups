@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -69,6 +70,11 @@ func Load() (*Config, error) {
 	cfg.DatabaseUser = getInput("database_user")
 	cfg.DatabasePassword = getInput("database_password")
 	cfg.ConnectionString = getInput("connection_string")
+
+	// If using connection string and database name is empty, try to parse it
+	if cfg.ConnectionString != "" && cfg.DatabaseName == "" {
+		cfg.DatabaseName = parseDatabaseNameFromConnectionString(cfg.ConnectionString)
+	}
 
 	// R2 settings
 	cfg.R2AccountID = getInput("r2_account_id")
@@ -181,4 +187,22 @@ func defaultPort(dbType DatabaseType) int {
 	default:
 		return 0
 	}
+}
+
+func parseDatabaseNameFromConnectionString(connStr string) string {
+	// Try to parse as URL
+	u, err := url.Parse(connStr)
+	if err != nil {
+		return ""
+	}
+
+	// Database name is typically the path without leading slash
+	dbName := strings.TrimPrefix(u.Path, "/")
+
+	// Remove any query parameters (e.g., ?sslmode=require)
+	if idx := strings.Index(dbName, "?"); idx >= 0 {
+		dbName = dbName[:idx]
+	}
+
+	return dbName
 }
