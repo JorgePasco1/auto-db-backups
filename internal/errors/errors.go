@@ -6,12 +6,12 @@ import (
 )
 
 var (
-	ErrBackupFailed     = errors.New("backup failed")
-	ErrUploadFailed     = errors.New("upload failed")
-	ErrEncryptionFailed = errors.New("encryption failed")
-	ErrCompressionFailed = errors.New("compression failed")
-	ErrConnectionFailed = errors.New("database connection failed")
-	ErrRetentionFailed  = errors.New("retention cleanup failed")
+	ErrBackupFailed       = errors.New("backup failed")
+	ErrUploadFailed       = errors.New("upload failed")
+	ErrEncryptionFailed   = errors.New("encryption failed")
+	ErrCompressionFailed  = errors.New("compression failed")
+	ErrConnectionFailed   = errors.New("database connection failed")
+	ErrRetentionFailed    = errors.New("retention cleanup failed")
 	ErrNotificationFailed = errors.New("notification failed")
 )
 

@@ -11,24 +11,24 @@ import (
 )
 
 type WebhookPayload struct {
-	Status        string    `json:"status"`
-	DatabaseType  string    `json:"database_type"`
-	DatabaseName  string    `json:"database_name"`
-	BackupKey     string    `json:"backup_key,omitempty"`
-	BackupSize    int64     `json:"backup_size,omitempty"`
-	Compressed    bool      `json:"compressed"`
-	Encrypted     bool      `json:"encrypted"`
-	Duration      string    `json:"duration"`
-	Error         string    `json:"error,omitempty"`
-	Timestamp     time.Time `json:"timestamp"`
-	Repository    string    `json:"repository,omitempty"`
-	RunID         string    `json:"run_id,omitempty"`
-	RunURL        string    `json:"run_url,omitempty"`
+	Status       string    `json:"status"`
+	DatabaseType string    `json:"database_type"`
+	DatabaseName string    `json:"database_name"`
+	BackupKey    string    `json:"backup_key,omitempty"`
+	BackupSize   int64     `json:"backup_size,omitempty"`
+	Compressed   bool      `json:"compressed"`
+	Encrypted    bool      `json:"encrypted"`
+	Duration     string    `json:"duration"`
+	Error        string    `json:"error,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+	Repository   string    `json:"repository,omitempty"`
+	RunID        string    `json:"run_id,omitempty"`
+	RunURL       string    `json:"run_url,omitempty"`
 }
 
 type WebhookNotifier struct {
-	url     string
-	client  *http.Client
+	url    string
+	client *http.Client
 }
 
 func NewWebhookNotifier(url string) *WebhookNotifier {

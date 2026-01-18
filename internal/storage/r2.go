@@ -17,10 +17,10 @@ import (
 )
 
 type R2Client struct {
-	client     *s3.Client
-	bucket     string
-	prefix     string
-	accountID  string
+	client    *s3.Client
+	bucket    string
+	prefix    string
+	accountID string
 }
 
 type BackupObject struct {
