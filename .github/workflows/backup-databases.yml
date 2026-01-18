@@ -1,0 +1,85 @@
+name: Backup Neon Databases
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC (adjust as needed)
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  backup-database-1:
+    name: Backup Database 1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run backup
+        uses: ./
+        with:
+          database_type: 'postgres'
+          connection_string: ${{ secrets.NEON_DB_CONNECTION_1 }}
+
+          r2_account_id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2_access_key_id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2_secret_access_key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2_bucket_name: ${{ secrets.R2_BUCKET_NAME }}
+          backup_prefix: 'database-1/'
+
+          compression: 'true'
+          encryption_key: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+
+          # Keep backups for 7 days
+          retention_days: '7'
+          # Keep last 30 backups
+          retention_count: '30'
+
+  backup-database-2:
+    name: Backup Database 2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run backup
+        uses: ./
+        with:
+          database_type: 'postgres'
+          connection_string: ${{ secrets.NEON_DB_CONNECTION_2 }}
+
+          r2_account_id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2_access_key_id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2_secret_access_key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2_bucket_name: ${{ secrets.R2_BUCKET_NAME }}
+          backup_prefix: 'database-2/'
+
+          compression: 'true'
+          encryption_key: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+
+          retention_days: '7'
+          retention_count: '30'
+
+  backup-database-3:
+    name: Backup Database 3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run backup
+        uses: ./
+        with:
+          database_type: 'postgres'
+          connection_string: ${{ secrets.NEON_DB_CONNECTION_3 }}
+
+          r2_account_id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2_access_key_id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2_secret_access_key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2_bucket_name: ${{ secrets.R2_BUCKET_NAME }}
+          backup_prefix: 'database-3/'
+
+          compression: 'true'
+          encryption_key: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+
+          retention_days: '7'
+          retention_count: '30'
