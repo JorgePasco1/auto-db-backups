@@ -31,16 +31,8 @@ type BackupObject struct {
 }
 
 func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
-	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", cfg.R2AccountID)
-
-	r2Resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			URL: endpoint,
-		}, nil
-	})
-
+	// Use the standard AWS configuration with custom endpoint
 	awsCfg, err := config.LoadDefaultConfig(ctx,
-		config.WithEndpointResolverWithOptions(r2Resolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.R2AccessKeyID,
 			cfg.R2SecretAccessKey,
@@ -52,8 +44,9 @@ func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
+	// Create S3 client with R2 endpoint
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		// Use path-style addressing for R2 compatibility
+		o.BaseEndpoint = aws.String(fmt.Sprintf("https://%s.r2.cloudflarestorage.com", cfg.R2AccountID))
 		o.UsePathStyle = true
 	})
 
