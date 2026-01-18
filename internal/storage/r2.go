@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	appcfg "github.com/jorgepascosoto/auto-db-backups/internal/config"
@@ -64,7 +65,10 @@ func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
 func (c *R2Client) Upload(ctx context.Context, key string, body io.Reader) error {
 	fullKey := c.prefix + key
 
-	_, err := c.client.PutObject(ctx, &s3.PutObjectInput{
+	// Use the upload manager for better retry handling and large file support
+	uploader := manager.NewUploader(c.client)
+
+	_, err := uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(fullKey),
 		Body:   body,
