@@ -17,32 +17,38 @@ const (
 	DatabaseTypeMongoDB  DatabaseType = "mongodb"
 )
 
-type Config struct {
-	// Database settings
-	DatabaseType     DatabaseType
-	DatabaseHost     string
-	DatabasePort     int
-	DatabaseName     string
-	DatabaseUser     string
-	DatabasePassword string
+// DatabaseConfig holds settings for a single database to back up
+type DatabaseConfig struct {
+	Type             DatabaseType
+	Host             string
+	Port             int
+	Name             string
+	User             string
+	Password         string
 	ConnectionString string
+	BackupPrefix     string
+}
 
-	// R2 settings
+// Config holds the application configuration
+type Config struct {
+	// Database settings (multiple databases supported)
+	Databases []DatabaseConfig
+
+	// R2 settings (shared across all backups)
 	R2AccountID       string
 	R2AccessKeyID     string
 	R2SecretAccessKey string
 	R2BucketName      string
-	BackupPrefix      string
 
-	// Backup settings
+	// Backup settings (shared)
 	Compression   bool
 	EncryptionKey []byte
 
-	// Retention settings
+	// Retention settings (shared)
 	RetentionDays  int
 	RetentionCount int
 
-	// Notification settings
+	// Notification settings (shared)
 	WebhookURL      string
 	NotifyOnSuccess bool
 	NotifyOnFailure bool
@@ -51,37 +57,32 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{}
 
-	// Database settings
+	// Determine database type (shared across all connections)
 	dbType := getInput("database_type")
+	var parsedDBType DatabaseType
 	switch strings.ToLower(dbType) {
-	case "postgres", "postgresql":
-		cfg.DatabaseType = DatabaseTypePostgres
+	case "postgres", "postgresql", "":
+		parsedDBType = DatabaseTypePostgres // Default to postgres
 	case "mysql", "mariadb":
-		cfg.DatabaseType = DatabaseTypeMySQL
+		parsedDBType = DatabaseTypeMySQL
 	case "mongodb", "mongo":
-		cfg.DatabaseType = DatabaseTypeMongoDB
+		parsedDBType = DatabaseTypeMongoDB
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
 
-	cfg.DatabaseHost = getInput("database_host")
-	cfg.DatabasePort = getInputInt("database_port", defaultPort(cfg.DatabaseType))
-	cfg.DatabaseName = getInput("database_name")
-	cfg.DatabaseUser = getInput("database_user")
-	cfg.DatabasePassword = getInput("database_password")
-	cfg.ConnectionString = getInput("connection_string")
-
-	// If using connection string and database name is empty, try to parse it
-	if cfg.ConnectionString != "" && cfg.DatabaseName == "" {
-		cfg.DatabaseName = parseDatabaseNameFromConnectionString(cfg.ConnectionString)
+	// Load database connections
+	databases, err := loadDatabaseConfigs(parsedDBType)
+	if err != nil {
+		return nil, err
 	}
+	cfg.Databases = databases
 
 	// R2 settings
 	cfg.R2AccountID = getInput("r2_account_id")
 	cfg.R2AccessKeyID = getInput("r2_access_key_id")
 	cfg.R2SecretAccessKey = getInput("r2_secret_access_key")
 	cfg.R2BucketName = getInput("r2_bucket_name")
-	cfg.BackupPrefix = getInput("backup_prefix")
 
 	// Backup settings
 	cfg.Compression = getInputBool("compression", true)
@@ -114,14 +115,95 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-func (c *Config) Validate() error {
-	// Either connection string or individual params required
-	if c.ConnectionString == "" {
-		if c.DatabaseHost == "" {
-			return fmt.Errorf("database_host is required when connection_string is not provided")
+// loadDatabaseConfigs loads multiple database configurations
+// It looks for DATABASE_CONNECTION_1, DATABASE_CONNECTION_2, etc.
+// Falls back to single CONNECTION_STRING for backward compatibility
+func loadDatabaseConfigs(dbType DatabaseType) ([]DatabaseConfig, error) {
+	var databases []DatabaseConfig
+
+	// Try numbered connections first: DATABASE_CONNECTION_1, DATABASE_CONNECTION_2, etc.
+	for i := 1; ; i++ {
+		connStr := getInput(fmt.Sprintf("database_connection_%d", i))
+		if connStr == "" {
+			break
 		}
-		if c.DatabaseName == "" {
-			return fmt.Errorf("database_name is required when connection_string is not provided")
+
+		dbName := parseDatabaseNameFromConnectionString(connStr)
+		prefix := getInput(fmt.Sprintf("database_prefix_%d", i))
+		if prefix == "" {
+			prefix = fmt.Sprintf("backups/%s/", dbName)
+		}
+		if prefix != "" && !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+
+		databases = append(databases, DatabaseConfig{
+			Type:             dbType,
+			ConnectionString: connStr,
+			Name:             dbName,
+			Port:             defaultPort(dbType),
+			BackupPrefix:     prefix,
+		})
+	}
+
+	// If no numbered connections found, fall back to single connection_string
+	if len(databases) == 0 {
+		connStr := getInput("connection_string")
+		if connStr != "" {
+			dbName := parseDatabaseNameFromConnectionString(connStr)
+			prefix := getInput("backup_prefix")
+			if prefix != "" && !strings.HasSuffix(prefix, "/") {
+				prefix += "/"
+			}
+
+			databases = append(databases, DatabaseConfig{
+				Type:             dbType,
+				ConnectionString: connStr,
+				Name:             dbName,
+				Port:             defaultPort(dbType),
+				BackupPrefix:     prefix,
+			})
+		}
+	}
+
+	// If still no connections, try individual parameters (legacy support)
+	if len(databases) == 0 {
+		host := getInput("database_host")
+		if host != "" {
+			prefix := getInput("backup_prefix")
+			if prefix != "" && !strings.HasSuffix(prefix, "/") {
+				prefix += "/"
+			}
+
+			databases = append(databases, DatabaseConfig{
+				Type:         dbType,
+				Host:         host,
+				Port:         getInputInt("database_port", defaultPort(dbType)),
+				Name:         getInput("database_name"),
+				User:         getInput("database_user"),
+				Password:     getInput("database_password"),
+				BackupPrefix: prefix,
+			})
+		}
+	}
+
+	if len(databases) == 0 {
+		return nil, fmt.Errorf("no database connections configured. Set DATABASE_CONNECTION_1 or CONNECTION_STRING")
+	}
+
+	return databases, nil
+}
+
+func (c *Config) Validate() error {
+	// Validate each database config
+	for i, db := range c.Databases {
+		if db.ConnectionString == "" {
+			if db.Host == "" {
+				return fmt.Errorf("database %d: host is required when connection_string is not provided", i+1)
+			}
+			if db.Name == "" {
+				return fmt.Errorf("database %d: name is required when connection_string is not provided", i+1)
+			}
 		}
 	}
 
@@ -151,9 +233,13 @@ func (c *Config) HasRetention() bool {
 }
 
 func getInput(name string) string {
-	// GitHub Actions passes inputs as INPUT_<NAME> env vars (uppercase, underscores)
-	envName := "INPUT_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
-	return strings.TrimSpace(os.Getenv(envName))
+	// First try regular env var (for local development)
+	envName := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	if val := os.Getenv(envName); val != "" {
+		return strings.TrimSpace(val)
+	}
+	// Fall back to INPUT_ prefixed (GitHub Actions convention)
+	return strings.TrimSpace(os.Getenv("INPUT_" + envName))
 }
 
 func getInputInt(name string, defaultVal int) int {

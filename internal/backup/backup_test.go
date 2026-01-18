@@ -9,20 +9,17 @@ import (
 	"github.com/jorgepascosoto/auto-db-backups/internal/config"
 )
 
-// createTestConfig creates a config for testing with the specified database type
-func createTestConfig(dbType config.DatabaseType) *config.Config {
-	return &config.Config{
-		DatabaseType:      dbType,
-		DatabaseHost:      "localhost",
-		DatabasePort:      5432,
-		DatabaseName:      "testdb",
-		DatabaseUser:      "testuser",
-		DatabasePassword:  "testpass",
-		ConnectionString:  "",
-		R2AccountID:       "account",
-		R2AccessKeyID:     "accesskey",
-		R2SecretAccessKey: "secretkey",
-		R2BucketName:      "bucket",
+// createTestDatabaseConfig creates a DatabaseConfig for testing with the specified database type
+func createTestDatabaseConfig(dbType config.DatabaseType) *config.DatabaseConfig {
+	return &config.DatabaseConfig{
+		Type:             dbType,
+		Host:             "localhost",
+		Port:             5432,
+		Name:             "testdb",
+		User:             "testuser",
+		Password:         "testpass",
+		ConnectionString: "",
+		BackupPrefix:     "backups/testdb/",
 	}
 }
 
@@ -30,8 +27,8 @@ func createTestConfig(dbType config.DatabaseType) *config.Config {
 func TestNewExporter_Postgres(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	exporter, err := NewExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	exporter, err := NewExporter(db)
 
 	require.NoError(t, err)
 	require.NotNil(t, exporter)
@@ -43,9 +40,9 @@ func TestNewExporter_Postgres(t *testing.T) {
 func TestNewExporter_MySQL(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMySQL)
-	cfg.DatabasePort = 3306
-	exporter, err := NewExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMySQL)
+	db.Port = 3306
+	exporter, err := NewExporter(db)
 
 	require.NoError(t, err)
 	require.NotNil(t, exporter)
@@ -57,9 +54,9 @@ func TestNewExporter_MySQL(t *testing.T) {
 func TestNewExporter_MongoDB(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	cfg.DatabasePort = 27017
-	exporter, err := NewExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	db.Port = 27017
+	exporter, err := NewExporter(db)
 
 	require.NoError(t, err)
 	require.NotNil(t, exporter)
@@ -71,8 +68,8 @@ func TestNewExporter_MongoDB(t *testing.T) {
 func TestNewExporter_UnsupportedType(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseType("oracle"))
-	exporter, err := NewExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseType("oracle"))
+	exporter, err := NewExporter(db)
 
 	assert.Error(t, err)
 	assert.Nil(t, exporter)
@@ -83,19 +80,19 @@ func TestNewExporter_UnsupportedType(t *testing.T) {
 func TestNewPostgresExporter(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	exporter := NewPostgresExporter(db)
 
 	require.NotNil(t, exporter)
-	assert.Equal(t, cfg, exporter.cfg)
+	assert.Equal(t, db, exporter.db)
 }
 
 func TestPostgresExporter_DatabaseName(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	cfg.DatabaseName = "mypostgresdb"
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	db.Name = "mypostgresdb"
+	exporter := NewPostgresExporter(db)
 
 	assert.Equal(t, "mypostgresdb", exporter.DatabaseName())
 }
@@ -103,8 +100,8 @@ func TestPostgresExporter_DatabaseName(t *testing.T) {
 func TestPostgresExporter_DatabaseType(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	exporter := NewPostgresExporter(db)
 
 	assert.Equal(t, "postgres", exporter.DatabaseType())
 }
@@ -112,13 +109,13 @@ func TestPostgresExporter_DatabaseType(t *testing.T) {
 func TestPostgresExporter_BuildArgs_WithConnectionString(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	cfg.ConnectionString = "postgres://user:pass@host:5432/db"
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	db.ConnectionString = "postgres://user:pass@host:5432/db"
+	exporter := NewPostgresExporter(db)
 
 	args := exporter.buildArgs()
 
-	assert.Contains(t, args, cfg.ConnectionString)
+	assert.Contains(t, args, db.ConnectionString)
 	assert.Contains(t, args, "--format=custom")
 	// Should NOT contain individual params when connection string is used
 	for _, arg := range args {
@@ -129,12 +126,12 @@ func TestPostgresExporter_BuildArgs_WithConnectionString(t *testing.T) {
 func TestPostgresExporter_BuildArgs_WithIndividualParams(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	cfg.DatabaseHost = "db.example.com"
-	cfg.DatabasePort = 15432
-	cfg.DatabaseName = "proddb"
-	cfg.DatabaseUser = "admin"
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	db.Host = "db.example.com"
+	db.Port = 15432
+	db.Name = "proddb"
+	db.User = "admin"
+	exporter := NewPostgresExporter(db)
 
 	args := exporter.buildArgs()
 
@@ -149,9 +146,9 @@ func TestPostgresExporter_BuildArgs_WithIndividualParams(t *testing.T) {
 func TestPostgresExporter_BuildArgs_WithoutUser(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	cfg.DatabaseUser = ""
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	db.User = ""
+	exporter := NewPostgresExporter(db)
 
 	args := exporter.buildArgs()
 
@@ -163,9 +160,9 @@ func TestPostgresExporter_BuildArgs_WithoutUser(t *testing.T) {
 func TestPostgresExporter_BuildEnv_WithPassword(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	cfg.DatabasePassword = "secret123"
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	db.Password = "secret123"
+	exporter := NewPostgresExporter(db)
 
 	env := exporter.buildEnv()
 
@@ -182,9 +179,9 @@ func TestPostgresExporter_BuildEnv_WithPassword(t *testing.T) {
 func TestPostgresExporter_BuildEnv_WithoutPassword(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
-	cfg.DatabasePassword = ""
-	exporter := NewPostgresExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
+	db.Password = ""
+	exporter := NewPostgresExporter(db)
 
 	env := exporter.buildEnv()
 
@@ -197,19 +194,19 @@ func TestPostgresExporter_BuildEnv_WithoutPassword(t *testing.T) {
 func TestNewMySQLExporter(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMySQL)
-	exporter := NewMySQLExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMySQL)
+	exporter := NewMySQLExporter(db)
 
 	require.NotNil(t, exporter)
-	assert.Equal(t, cfg, exporter.cfg)
+	assert.Equal(t, db, exporter.db)
 }
 
 func TestMySQLExporter_DatabaseName(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMySQL)
-	cfg.DatabaseName = "mymysqldb"
-	exporter := NewMySQLExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMySQL)
+	db.Name = "mymysqldb"
+	exporter := NewMySQLExporter(db)
 
 	assert.Equal(t, "mymysqldb", exporter.DatabaseName())
 }
@@ -217,8 +214,8 @@ func TestMySQLExporter_DatabaseName(t *testing.T) {
 func TestMySQLExporter_DatabaseType(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMySQL)
-	exporter := NewMySQLExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMySQL)
+	exporter := NewMySQLExporter(db)
 
 	assert.Equal(t, "mysql", exporter.DatabaseType())
 }
@@ -226,13 +223,13 @@ func TestMySQLExporter_DatabaseType(t *testing.T) {
 func TestMySQLExporter_BuildArgs(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMySQL)
-	cfg.DatabaseHost = "mysql.example.com"
-	cfg.DatabasePort = 3307
-	cfg.DatabaseName = "mydb"
-	cfg.DatabaseUser = "root"
-	cfg.DatabasePassword = "rootpass"
-	exporter := NewMySQLExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMySQL)
+	db.Host = "mysql.example.com"
+	db.Port = 3307
+	db.Name = "mydb"
+	db.User = "root"
+	db.Password = "rootpass"
+	exporter := NewMySQLExporter(db)
 
 	args := exporter.buildArgs()
 
@@ -252,10 +249,10 @@ func TestMySQLExporter_BuildArgs(t *testing.T) {
 func TestMySQLExporter_BuildArgs_WithoutUserAndPassword(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMySQL)
-	cfg.DatabaseUser = ""
-	cfg.DatabasePassword = ""
-	exporter := NewMySQLExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMySQL)
+	db.User = ""
+	db.Password = ""
+	exporter := NewMySQLExporter(db)
 
 	args := exporter.buildArgs()
 
@@ -269,19 +266,19 @@ func TestMySQLExporter_BuildArgs_WithoutUserAndPassword(t *testing.T) {
 func TestNewMongoDBExporter(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	exporter := NewMongoDBExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	exporter := NewMongoDBExporter(db)
 
 	require.NotNil(t, exporter)
-	assert.Equal(t, cfg, exporter.cfg)
+	assert.Equal(t, db, exporter.db)
 }
 
 func TestMongoDBExporter_DatabaseName(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	cfg.DatabaseName = "mymongoDb"
-	exporter := NewMongoDBExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	db.Name = "mymongoDb"
+	exporter := NewMongoDBExporter(db)
 
 	assert.Equal(t, "mymongoDb", exporter.DatabaseName())
 }
@@ -289,8 +286,8 @@ func TestMongoDBExporter_DatabaseName(t *testing.T) {
 func TestMongoDBExporter_DatabaseType(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	exporter := NewMongoDBExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	exporter := NewMongoDBExporter(db)
 
 	assert.Equal(t, "mongodb", exporter.DatabaseType())
 }
@@ -298,9 +295,9 @@ func TestMongoDBExporter_DatabaseType(t *testing.T) {
 func TestMongoDBExporter_BuildArgs_WithConnectionString(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	cfg.ConnectionString = "mongodb://user:pass@host:27017/db"
-	exporter := NewMongoDBExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	db.ConnectionString = "mongodb://user:pass@host:27017/db"
+	exporter := NewMongoDBExporter(db)
 
 	args := exporter.buildArgs("/tmp/output")
 
@@ -315,13 +312,13 @@ func TestMongoDBExporter_BuildArgs_WithConnectionString(t *testing.T) {
 func TestMongoDBExporter_BuildArgs_WithIndividualParams(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	cfg.DatabaseHost = "mongo.example.com"
-	cfg.DatabasePort = 27018
-	cfg.DatabaseName = "analytics"
-	cfg.DatabaseUser = "mongouser"
-	cfg.DatabasePassword = "mongopass"
-	exporter := NewMongoDBExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	db.Host = "mongo.example.com"
+	db.Port = 27018
+	db.Name = "analytics"
+	db.User = "mongouser"
+	db.Password = "mongopass"
+	exporter := NewMongoDBExporter(db)
 
 	args := exporter.buildArgs("/var/dump")
 
@@ -336,10 +333,10 @@ func TestMongoDBExporter_BuildArgs_WithIndividualParams(t *testing.T) {
 func TestMongoDBExporter_BuildArgs_WithoutCredentials(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypeMongoDB)
-	cfg.DatabaseUser = ""
-	cfg.DatabasePassword = ""
-	exporter := NewMongoDBExporter(cfg)
+	db := createTestDatabaseConfig(config.DatabaseTypeMongoDB)
+	db.User = ""
+	db.Password = ""
+	exporter := NewMongoDBExporter(db)
 
 	args := exporter.buildArgs("/tmp/out")
 
@@ -353,12 +350,12 @@ func TestMongoDBExporter_BuildArgs_WithoutCredentials(t *testing.T) {
 func TestExporter_InterfaceCompliance(t *testing.T) {
 	t.Parallel()
 
-	cfg := createTestConfig(config.DatabaseTypePostgres)
+	db := createTestDatabaseConfig(config.DatabaseTypePostgres)
 
 	// Verify all exporters implement the Exporter interface
-	var _ Exporter = NewPostgresExporter(cfg)
-	var _ Exporter = NewMySQLExporter(cfg)
-	var _ Exporter = NewMongoDBExporter(cfg)
+	var _ Exporter = NewPostgresExporter(db)
+	var _ Exporter = NewMySQLExporter(db)
+	var _ Exporter = NewMongoDBExporter(db)
 }
 
 // Tests for cmdReadCloser

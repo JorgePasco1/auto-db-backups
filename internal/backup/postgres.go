@@ -12,11 +12,11 @@ import (
 )
 
 type PostgresExporter struct {
-	cfg *config.Config
+	db *config.DatabaseConfig
 }
 
-func NewPostgresExporter(cfg *config.Config) *PostgresExporter {
-	return &PostgresExporter{cfg: cfg}
+func NewPostgresExporter(db *config.DatabaseConfig) *PostgresExporter {
+	return &PostgresExporter{db: db}
 }
 
 func (e *PostgresExporter) Export(ctx context.Context) (io.ReadCloser, error) {
@@ -27,16 +27,16 @@ func (e *PostgresExporter) Export(ctx context.Context) (io.ReadCloser, error) {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, errors.NewBackupError("postgres", e.cfg.DatabaseName, fmt.Errorf("failed to create stdout pipe: %w", err))
+		return nil, errors.NewBackupError("postgres", e.db.Name, fmt.Errorf("failed to create stdout pipe: %w", err))
 	}
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, errors.NewBackupError("postgres", e.cfg.DatabaseName, fmt.Errorf("failed to create stderr pipe: %w", err))
+		return nil, errors.NewBackupError("postgres", e.db.Name, fmt.Errorf("failed to create stderr pipe: %w", err))
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, errors.NewBackupError("postgres", e.cfg.DatabaseName, fmt.Errorf("failed to start pg_dump: %w", err))
+		return nil, errors.NewBackupError("postgres", e.db.Name, fmt.Errorf("failed to start pg_dump: %w", err))
 	}
 
 	return &cmdReadCloser{
@@ -44,12 +44,12 @@ func (e *PostgresExporter) Export(ctx context.Context) (io.ReadCloser, error) {
 		cmd:        cmd,
 		stderr:     stderrPipe,
 		dbType:     "postgres",
-		dbName:     e.cfg.DatabaseName,
+		dbName:     e.db.Name,
 	}, nil
 }
 
 func (e *PostgresExporter) DatabaseName() string {
-	return e.cfg.DatabaseName
+	return e.db.Name
 }
 
 func (e *PostgresExporter) DatabaseType() string {
@@ -58,20 +58,20 @@ func (e *PostgresExporter) DatabaseType() string {
 
 func (e *PostgresExporter) buildArgs() []string {
 	// If connection string is provided, use it directly
-	if e.cfg.ConnectionString != "" {
-		return []string{e.cfg.ConnectionString, "--format=custom"}
+	if e.db.ConnectionString != "" {
+		return []string{e.db.ConnectionString, "--format=custom"}
 	}
 
 	args := []string{
 		"--format=custom",
 		"--no-password",
-		fmt.Sprintf("--host=%s", e.cfg.DatabaseHost),
-		fmt.Sprintf("--port=%d", e.cfg.DatabasePort),
-		fmt.Sprintf("--dbname=%s", e.cfg.DatabaseName),
+		fmt.Sprintf("--host=%s", e.db.Host),
+		fmt.Sprintf("--port=%d", e.db.Port),
+		fmt.Sprintf("--dbname=%s", e.db.Name),
 	}
 
-	if e.cfg.DatabaseUser != "" {
-		args = append(args, fmt.Sprintf("--username=%s", e.cfg.DatabaseUser))
+	if e.db.User != "" {
+		args = append(args, fmt.Sprintf("--username=%s", e.db.User))
 	}
 
 	return args
@@ -80,8 +80,8 @@ func (e *PostgresExporter) buildArgs() []string {
 func (e *PostgresExporter) buildEnv() []string {
 	env := os.Environ()
 
-	if e.cfg.DatabasePassword != "" {
-		env = append(env, fmt.Sprintf("PGPASSWORD=%s", e.cfg.DatabasePassword))
+	if e.db.Password != "" {
+		env = append(env, fmt.Sprintf("PGPASSWORD=%s", e.db.Password))
 	}
 
 	return env

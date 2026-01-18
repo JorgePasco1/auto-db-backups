@@ -2,8 +2,11 @@ package storage
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"sort"
 	"time"
 
@@ -30,8 +33,29 @@ type BackupObject struct {
 	LastModified time.Time
 }
 
-func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
-	// Use the standard AWS configuration with custom endpoint
+// NewR2Client creates a new R2 client with the specified prefix
+func NewR2Client(ctx context.Context, cfg *appcfg.Config, prefix string) (*R2Client, error) {
+	// Create custom HTTP client with explicit TLS configuration
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				MaxVersion: tls.VersionTLS13,
+			},
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+		},
+		Timeout: 5 * time.Minute,
+	}
+
+	// Use the standard AWS configuration with custom HTTP client
 	awsCfg, err := config.LoadDefaultConfig(ctx,
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.R2AccessKeyID,
@@ -39,12 +63,14 @@ func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
 			"",
 		)),
 		config.WithRegion("auto"),
+		config.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	// Create S3 client with R2 endpoint
+	// R2 requires path-style addressing (bucket in path, not hostname)
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(fmt.Sprintf("https://%s.r2.cloudflarestorage.com", cfg.R2AccountID))
 		o.UsePathStyle = true
@@ -53,7 +79,7 @@ func NewR2Client(ctx context.Context, cfg *appcfg.Config) (*R2Client, error) {
 	return &R2Client{
 		client:    client,
 		bucket:    cfg.R2BucketName,
-		prefix:    cfg.BackupPrefix,
+		prefix:    prefix,
 		accountID: cfg.R2AccountID,
 	}, nil
 }

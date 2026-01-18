@@ -11,11 +11,11 @@ import (
 )
 
 type MySQLExporter struct {
-	cfg *config.Config
+	db *config.DatabaseConfig
 }
 
-func NewMySQLExporter(cfg *config.Config) *MySQLExporter {
-	return &MySQLExporter{cfg: cfg}
+func NewMySQLExporter(db *config.DatabaseConfig) *MySQLExporter {
+	return &MySQLExporter{db: db}
 }
 
 func (e *MySQLExporter) Export(ctx context.Context) (io.ReadCloser, error) {
@@ -25,16 +25,16 @@ func (e *MySQLExporter) Export(ctx context.Context) (io.ReadCloser, error) {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, errors.NewBackupError("mysql", e.cfg.DatabaseName, fmt.Errorf("failed to create stdout pipe: %w", err))
+		return nil, errors.NewBackupError("mysql", e.db.Name, fmt.Errorf("failed to create stdout pipe: %w", err))
 	}
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, errors.NewBackupError("mysql", e.cfg.DatabaseName, fmt.Errorf("failed to create stderr pipe: %w", err))
+		return nil, errors.NewBackupError("mysql", e.db.Name, fmt.Errorf("failed to create stderr pipe: %w", err))
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, errors.NewBackupError("mysql", e.cfg.DatabaseName, fmt.Errorf("failed to start mysqldump: %w", err))
+		return nil, errors.NewBackupError("mysql", e.db.Name, fmt.Errorf("failed to start mysqldump: %w", err))
 	}
 
 	return &cmdReadCloser{
@@ -42,12 +42,12 @@ func (e *MySQLExporter) Export(ctx context.Context) (io.ReadCloser, error) {
 		cmd:        cmd,
 		stderr:     stderrPipe,
 		dbType:     "mysql",
-		dbName:     e.cfg.DatabaseName,
+		dbName:     e.db.Name,
 	}, nil
 }
 
 func (e *MySQLExporter) DatabaseName() string {
-	return e.cfg.DatabaseName
+	return e.db.Name
 }
 
 func (e *MySQLExporter) DatabaseType() string {
@@ -60,19 +60,19 @@ func (e *MySQLExporter) buildArgs() []string {
 		"--routines",
 		"--triggers",
 		"--events",
-		fmt.Sprintf("--host=%s", e.cfg.DatabaseHost),
-		fmt.Sprintf("--port=%d", e.cfg.DatabasePort),
+		fmt.Sprintf("--host=%s", e.db.Host),
+		fmt.Sprintf("--port=%d", e.db.Port),
 	}
 
-	if e.cfg.DatabaseUser != "" {
-		args = append(args, fmt.Sprintf("--user=%s", e.cfg.DatabaseUser))
+	if e.db.User != "" {
+		args = append(args, fmt.Sprintf("--user=%s", e.db.User))
 	}
 
-	if e.cfg.DatabasePassword != "" {
-		args = append(args, fmt.Sprintf("--password=%s", e.cfg.DatabasePassword))
+	if e.db.Password != "" {
+		args = append(args, fmt.Sprintf("--password=%s", e.db.Password))
 	}
 
-	args = append(args, e.cfg.DatabaseName)
+	args = append(args, e.db.Name)
 
 	return args
 }

@@ -46,78 +46,112 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	log.Printf("Starting backup for %s database: %s", cfg.DatabaseType, cfg.DatabaseName)
+	log.Printf("Starting backup for %d database(s)", len(cfg.Databases))
 
-	// Create summary for notifications
-	summary := &notify.BackupSummary{
-		DatabaseType: string(cfg.DatabaseType),
-		DatabaseName: cfg.DatabaseName,
-		Compressed:   cfg.Compression,
-		Encrypted:    cfg.HasEncryption(),
-	}
+	// Track results for all databases
+	var allBackupKeys []string
+	var allBackupSizes []int64
+	var failedDatabases []string
 
-	// Run the backup
-	backupKey, backupSize, err := performBackup(ctx, cfg)
-	summary.Duration = time.Since(startTime)
+	// Process each database
+	for i, db := range cfg.Databases {
+		dbStartTime := time.Now()
+		log.Printf("[%d/%d] Backing up %s database: %s", i+1, len(cfg.Databases), db.Type, db.Name)
 
-	if err != nil {
-		summary.Success = false
-		summary.Error = err
-		if notifyErr := sendNotifications(ctx, cfg, summary); notifyErr != nil {
-			log.Printf("Warning: failed to send notifications: %v", notifyErr)
+		// Create summary for this database
+		summary := &notify.BackupSummary{
+			DatabaseType: string(db.Type),
+			DatabaseName: db.Name,
+			Compressed:   cfg.Compression,
+			Encrypted:    cfg.HasEncryption(),
 		}
-		return err
-	}
 
-	summary.Success = true
-	summary.BackupKey = backupKey
-	summary.BackupSize = backupSize
+		// Run the backup for this database
+		backupKey, backupSize, err := performBackup(ctx, cfg, &db)
+		summary.Duration = time.Since(dbStartTime)
 
-	// Apply retention policy
-	if cfg.HasRetention() {
-		r2Client, err := storage.NewR2Client(ctx, cfg)
 		if err != nil {
-			log.Printf("Warning: failed to create R2 client for retention: %v", err)
-		} else {
-			result, err := storage.ApplyRetention(ctx, r2Client, storage.RetentionPolicy{
-				Days:  cfg.RetentionDays,
-				Count: cfg.RetentionCount,
-			})
+			log.Printf("[%d/%d] FAILED: %s - %v", i+1, len(cfg.Databases), db.Name, err)
+			summary.Success = false
+			summary.Error = err
+			failedDatabases = append(failedDatabases, db.Name)
+
+			// Send failure notification for this database
+			if err := sendNotifications(ctx, cfg, summary); err != nil {
+				log.Printf("Warning: failed to send notifications for %s: %v", db.Name, err)
+			}
+			continue
+		}
+
+		log.Printf("[%d/%d] SUCCESS: %s -> %s (%d bytes)", i+1, len(cfg.Databases), db.Name, backupKey, backupSize)
+		summary.Success = true
+		summary.BackupKey = backupKey
+		summary.BackupSize = backupSize
+
+		allBackupKeys = append(allBackupKeys, backupKey)
+		allBackupSizes = append(allBackupSizes, backupSize)
+
+		// Apply retention policy for this database's prefix
+		if cfg.HasRetention() {
+			r2Client, err := storage.NewR2Client(ctx, cfg, db.BackupPrefix)
 			if err != nil {
-				log.Printf("Warning: retention policy failed: %v", err)
-			} else if result.DeletedCount > 0 {
-				log.Printf("Deleted %d old backup(s)", result.DeletedCount)
-				summary.DeletedBackups = result.DeletedCount
+				log.Printf("Warning: failed to create R2 client for retention (%s): %v", db.Name, err)
+			} else {
+				result, err := storage.ApplyRetention(ctx, r2Client, storage.RetentionPolicy{
+					Days:  cfg.RetentionDays,
+					Count: cfg.RetentionCount,
+				})
+				if err != nil {
+					log.Printf("Warning: retention policy failed for %s: %v", db.Name, err)
+				} else if result.DeletedCount > 0 {
+					log.Printf("[%d/%d] Deleted %d old backup(s) for %s", i+1, len(cfg.Databases), result.DeletedCount, db.Name)
+					summary.DeletedBackups = result.DeletedCount
+				}
 			}
 		}
+
+		// Send success notification for this database
+		if err := sendNotifications(ctx, cfg, summary); err != nil {
+			log.Printf("Warning: failed to send notifications for %s: %v", db.Name, err)
+		}
 	}
 
-	// Send notifications
-	if err := sendNotifications(ctx, cfg, summary); err != nil {
-		log.Printf("Warning: failed to send notifications: %v", err)
+	// Set GitHub Action outputs (aggregate results)
+	if len(allBackupKeys) > 0 {
+		// For single database, set direct values; for multiple, use first one
+		if err := notify.SetGitHubOutput("backup_key", allBackupKeys[0]); err != nil {
+			log.Printf("Warning: failed to set backup_key output: %v", err)
+		}
+		if err := notify.SetGitHubOutput("backup_size", fmt.Sprintf("%d", allBackupSizes[0])); err != nil {
+			log.Printf("Warning: failed to set backup_size output: %v", err)
+		}
+		// Also set count of successful backups
+		if err := notify.SetGitHubOutput("backup_count", fmt.Sprintf("%d", len(allBackupKeys))); err != nil {
+			log.Printf("Warning: failed to set backup_count output: %v", err)
+		}
 	}
 
-	// Set GitHub Action outputs
-	if err := notify.SetGitHubOutput("backup_key", backupKey); err != nil {
-		log.Printf("Warning: failed to set backup_key output: %v", err)
-	}
-	if err := notify.SetGitHubOutput("backup_size", fmt.Sprintf("%d", backupSize)); err != nil {
-		log.Printf("Warning: failed to set backup_size output: %v", err)
+	totalDuration := time.Since(startTime)
+	log.Printf("Completed: %d successful, %d failed (total time: %s)",
+		len(allBackupKeys), len(failedDatabases), totalDuration.Round(time.Second))
+
+	// Return error if any database failed
+	if len(failedDatabases) > 0 {
+		return fmt.Errorf("backup failed for %d database(s): %v", len(failedDatabases), failedDatabases)
 	}
 
-	log.Printf("Backup completed successfully: %s (%d bytes)", backupKey, backupSize)
 	return nil
 }
 
-func performBackup(ctx context.Context, cfg *config.Config) (string, int64, error) {
+func performBackup(ctx context.Context, cfg *config.Config, db *config.DatabaseConfig) (string, int64, error) {
 	// Create database exporter
-	exporter, err := backup.NewExporter(cfg)
+	exporter, err := backup.NewExporter(db)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create exporter: %w", err)
 	}
 
 	// Export database
-	log.Printf("Exporting database...")
+	log.Printf("  Exporting database...")
 	reader, err := exporter.Export(ctx)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to export database: %w", err)
@@ -126,10 +160,10 @@ func performBackup(ctx context.Context, cfg *config.Config) (string, int64, erro
 
 	// Build backup filename
 	timestamp := time.Now().UTC().Format("20060102-150405")
-	filename := fmt.Sprintf("%s-%s-%s", cfg.DatabaseType, cfg.DatabaseName, timestamp)
+	filename := fmt.Sprintf("%s-%s-%s", db.Type, db.Name, timestamp)
 
 	// Add extension based on database type
-	switch cfg.DatabaseType {
+	switch db.Type {
 	case config.DatabaseTypePostgres:
 		filename += ".dump"
 	case config.DatabaseTypeMySQL:
@@ -142,7 +176,7 @@ func performBackup(ctx context.Context, cfg *config.Config) (string, int64, erro
 
 	// Apply compression if enabled
 	if cfg.Compression {
-		log.Printf("Compressing backup...")
+		log.Printf("  Compressing backup...")
 		compressor := compress.NewGzipCompressor()
 		compressedReader := compressor.Compress(dataReader)
 		defer compressedReader.Close()
@@ -152,7 +186,7 @@ func performBackup(ctx context.Context, cfg *config.Config) (string, int64, erro
 
 	// Apply encryption if enabled
 	if cfg.HasEncryption() {
-		log.Printf("Encrypting backup...")
+		log.Printf("  Encrypting backup...")
 		encryptor, err := encrypt.NewAESEncryptor(cfg.EncryptionKey)
 		if err != nil {
 			return "", 0, fmt.Errorf("failed to create encryptor: %w", err)
@@ -175,8 +209,8 @@ func performBackup(ctx context.Context, cfg *config.Config) (string, int64, erro
 	backupSize := int64(buf.Len())
 
 	// Upload to R2
-	log.Printf("Uploading backup to R2...")
-	r2Client, err := storage.NewR2Client(ctx, cfg)
+	log.Printf("  Uploading backup to R2...")
+	r2Client, err := storage.NewR2Client(ctx, cfg, db.BackupPrefix)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create R2 client: %w", err)
 	}
@@ -185,7 +219,7 @@ func performBackup(ctx context.Context, cfg *config.Config) (string, int64, erro
 		return "", 0, fmt.Errorf("failed to upload backup: %w", err)
 	}
 
-	fullKey := cfg.BackupPrefix + filename
+	fullKey := db.BackupPrefix + filename
 	return fullKey, backupSize, nil
 }
 

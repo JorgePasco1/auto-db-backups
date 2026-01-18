@@ -6,15 +6,15 @@ import (
 	"github.com/jorgepascosoto/auto-db-backups/internal/config"
 )
 
-func NewExporter(cfg *config.Config) (Exporter, error) {
-	switch cfg.DatabaseType {
+func NewExporter(db *config.DatabaseConfig) (Exporter, error) {
+	switch db.Type {
 	case config.DatabaseTypePostgres:
-		return NewPostgresExporter(cfg), nil
+		return NewPostgresExporter(db), nil
 	case config.DatabaseTypeMySQL:
-		return NewMySQLExporter(cfg), nil
+		return NewMySQLExporter(db), nil
 	case config.DatabaseTypeMongoDB:
-		return NewMongoDBExporter(cfg), nil
+		return NewMongoDBExporter(db), nil
 	default:
-		return nil, fmt.Errorf("unsupported database type: %s", cfg.DatabaseType)
+		return nil, fmt.Errorf("unsupported database type: %s", db.Type)
 	}
 }
