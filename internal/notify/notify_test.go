@@ -383,7 +383,9 @@ func TestBuildWebhookPayload_WithGitHubContext(t *testing.T) {
 }
 
 func TestBuildWebhookPayload_WithoutGitHubContext(t *testing.T) {
-	t.Parallel()
+	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("GITHUB_RUN_ID", "")
+	t.Setenv("GITHUB_SERVER_URL", "")
 
 	summary := &BackupSummary{
 		DatabaseType: "postgres",
