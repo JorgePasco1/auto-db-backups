@@ -5,12 +5,15 @@ set -euo pipefail
 # Usage: ./scripts/restore-backup.sh <backup-file.dump.gz.enc> <database-name>
 #
 # Prerequisites:
-#   - PostgreSQL installed locally (brew install postgresql)
+#   - PostgreSQL 17 installed locally (brew install postgresql@17)
 #   - ENCRYPTION_KEY environment variable set (from .env)
 #
 # Example:
 #   source .env
 #   ./scripts/restore-backup.sh backup.dump.gz.enc test_restore
+
+# Use PostgreSQL 17 tools (backups are created with pg_dump 17)
+export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
 
 if [ $# -ne 2 ]; then
     echo "Usage: $0 <backup-file> <database-name>"
