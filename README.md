@@ -70,22 +70,27 @@ Cloudflare R2 is an S3-compatible object storage service with zero egress fees, 
 
 ### Step 2: Get Your Database Connection String
 
+**⚠️ Important for PostgreSQL:** Always use **direct (non-pooled) connection strings**. Pooled connections (via PgBouncer, Supavisor, etc.) are incompatible with `pg_dump` and will cause backup failures.
+
 #### For Neon (PostgreSQL)
 
 1. Go to your [Neon Console](https://console.neon.tech)
 2. Select your project and database
 3. Click **Connection Details**
-4. Copy the connection string (it looks like):
+4. **Select "Direct connection"** or toggle off "Pooled connection"
+   - The pooled connection uses port `5432` with `-pooler` in the hostname
+   - The direct connection typically uses port `5432` without `-pooler`
+5. Copy the direct connection string:
    ```
    postgresql://user:password@ep-cool-name-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
    ```
 
 #### For Other PostgreSQL Providers
 
-- **Supabase**: Project Settings → Database → Connection string → URI
-- **Railway**: Your Project → Database → Connect → Connection URL
-- **Heroku**: App Dashboard → Settings → Config Vars → DATABASE_URL
-- **AWS RDS**: Endpoint + credentials in the format:
+- **Supabase**: Project Settings → Database → Connection string → **Direct connection** (NOT Transaction or Session mode)
+- **Railway**: Your Project → Database → Connect → Connection URL (already direct)
+- **Heroku**: App Dashboard → Settings → Config Vars → DATABASE_URL (already direct)
+- **AWS RDS**: Endpoint + credentials (always direct):
   ```
   postgresql://username:password@endpoint:5432/dbname
   ```
@@ -192,6 +197,7 @@ The forked repository already includes `.github/workflows/backup-databases.yml` 
    - **Connection refused**: Check your database connection string and firewall rules
    - **Access denied**: Verify your R2 API token has read/write permissions
    - **Command not found**: Make sure the workflow has the correct Go version
+   - **"pg_dump failed" or "bad connection"**: You're likely using a pooled connection string. Switch to a direct connection (see Step 2 above)
 
 ### Optional: Set Up Notifications
 
@@ -342,7 +348,7 @@ For multiple databases, use numbered suffixes:
 
 Connection string formats:
 ```
-# PostgreSQL
+# PostgreSQL (MUST be direct, not pooled)
 postgresql://user:password@host:5432/dbname?sslmode=require
 
 # MySQL
@@ -351,6 +357,8 @@ mysql://user:password@host:3306/dbname
 # MongoDB
 mongodb://user:password@host:27017/dbname
 ```
+
+**Important:** For PostgreSQL, always use direct connection strings. Connection poolers (PgBouncer, Supavisor, etc.) are incompatible with `pg_dump`.
 
 #### Backup Options
 
