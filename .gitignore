@@ -3,3 +3,6 @@
 
 # env
 .env
+
+# compiled binary
+auto-db-backups
