@@ -19,12 +19,12 @@ func setTestEnv(t *testing.T, envVars map[string]string) {
 // minimalValidEnv returns the minimum required environment variables for a valid config
 func minimalValidEnv() map[string]string {
 	return map[string]string{
-		"INPUT_DATABASE_TYPE":          "postgres",
-		"INPUT_DATABASE_CONNECTION_1":  "postgres://user:pass@localhost:5432/testdb",
-		"INPUT_R2_ACCOUNT_ID":          "account123",
-		"INPUT_R2_ACCESS_KEY_ID":       "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY":   "secretkey",
-		"INPUT_R2_BUCKET_NAME":         "my-bucket",
+		"INPUT_DATABASE_TYPE":         "postgres",
+		"INPUT_DATABASE_CONNECTION_1": "postgres://user:pass@localhost:5432/testdb",
+		"INPUT_R2_ACCOUNT_ID":         "account123",
+		"INPUT_R2_ACCESS_KEY_ID":      "accesskey",
+		"INPUT_R2_SECRET_ACCESS_KEY":  "secretkey",
+		"INPUT_R2_BUCKET_NAME":        "my-bucket",
 	}
 }
 
@@ -63,14 +63,14 @@ func TestLoad_MinimalValidConfig(t *testing.T) {
 
 func TestLoad_MultipleConnections(t *testing.T) {
 	env := map[string]string{
-		"INPUT_DATABASE_TYPE":          "postgres",
-		"INPUT_DATABASE_CONNECTION_1":  "postgres://user:pass@host1:5432/db1",
-		"INPUT_DATABASE_CONNECTION_2":  "postgres://user:pass@host2:5432/db2",
-		"INPUT_DATABASE_CONNECTION_3":  "postgres://user:pass@host3:5432/db3",
-		"INPUT_R2_ACCOUNT_ID":          "account123",
-		"INPUT_R2_ACCESS_KEY_ID":       "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY":   "secretkey",
-		"INPUT_R2_BUCKET_NAME":         "my-bucket",
+		"INPUT_DATABASE_TYPE":         "postgres",
+		"INPUT_DATABASE_CONNECTION_1": "postgres://user:pass@host1:5432/db1",
+		"INPUT_DATABASE_CONNECTION_2": "postgres://user:pass@host2:5432/db2",
+		"INPUT_DATABASE_CONNECTION_3": "postgres://user:pass@host3:5432/db3",
+		"INPUT_R2_ACCOUNT_ID":         "account123",
+		"INPUT_R2_ACCESS_KEY_ID":      "accesskey",
+		"INPUT_R2_SECRET_ACCESS_KEY":  "secretkey",
+		"INPUT_R2_BUCKET_NAME":        "my-bucket",
 	}
 	setTestEnv(t, env)
 
@@ -86,12 +86,12 @@ func TestLoad_MultipleConnections(t *testing.T) {
 func TestLoad_RegularEnvVars(t *testing.T) {
 	// Test that regular env vars (without INPUT_ prefix) work
 	env := map[string]string{
-		"DATABASE_TYPE":          "postgres",
-		"DATABASE_CONNECTION_1":  "postgres://user:pass@localhost:5432/testdb",
-		"R2_ACCOUNT_ID":          "account123",
-		"R2_ACCESS_KEY_ID":       "accesskey",
-		"R2_SECRET_ACCESS_KEY":   "secretkey",
-		"R2_BUCKET_NAME":         "my-bucket",
+		"DATABASE_TYPE":         "postgres",
+		"DATABASE_CONNECTION_1": "postgres://user:pass@localhost:5432/testdb",
+		"R2_ACCOUNT_ID":         "account123",
+		"R2_ACCESS_KEY_ID":      "accesskey",
+		"R2_SECRET_ACCESS_KEY":  "secretkey",
+		"R2_BUCKET_NAME":        "my-bucket",
 	}
 	setTestEnv(t, env)
 
@@ -626,20 +626,20 @@ func TestConfig_FullConfig(t *testing.T) {
 	}
 
 	env := map[string]string{
-		"INPUT_DATABASE_TYPE":          "postgres",
-		"INPUT_DATABASE_CONNECTION_1":  "postgres://admin:secret123@db.example.com:15432/mydb",
-		"INPUT_DATABASE_PREFIX_1":      "prod/daily/",
-		"INPUT_R2_ACCOUNT_ID":          "cf-account-123",
-		"INPUT_R2_ACCESS_KEY_ID":       "cf-access-key",
-		"INPUT_R2_SECRET_ACCESS_KEY":   "cf-secret-key",
-		"INPUT_R2_BUCKET_NAME":         "backups-bucket",
-		"INPUT_COMPRESSION":            "true",
-		"INPUT_ENCRYPTION_KEY":         base64.StdEncoding.EncodeToString(key),
-		"INPUT_RETENTION_DAYS":         "30",
-		"INPUT_RETENTION_COUNT":        "10",
-		"INPUT_WEBHOOK_URL":            "https://hooks.example.com/notify",
-		"INPUT_NOTIFY_ON_SUCCESS":      "true",
-		"INPUT_NOTIFY_ON_FAILURE":      "true",
+		"INPUT_DATABASE_TYPE":         "postgres",
+		"INPUT_DATABASE_CONNECTION_1": "postgres://admin:secret123@db.example.com:15432/mydb",
+		"INPUT_DATABASE_PREFIX_1":     "prod/daily/",
+		"INPUT_R2_ACCOUNT_ID":         "cf-account-123",
+		"INPUT_R2_ACCESS_KEY_ID":      "cf-access-key",
+		"INPUT_R2_SECRET_ACCESS_KEY":  "cf-secret-key",
+		"INPUT_R2_BUCKET_NAME":        "backups-bucket",
+		"INPUT_COMPRESSION":           "true",
+		"INPUT_ENCRYPTION_KEY":        base64.StdEncoding.EncodeToString(key),
+		"INPUT_RETENTION_DAYS":        "30",
+		"INPUT_RETENTION_COUNT":       "10",
+		"INPUT_WEBHOOK_URL":           "https://hooks.example.com/notify",
+		"INPUT_NOTIFY_ON_SUCCESS":     "true",
+		"INPUT_NOTIFY_ON_FAILURE":     "true",
 	}
 	setTestEnv(t, env)
 
