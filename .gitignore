@@ -6,3 +6,6 @@
 
 # compiled binary
 auto-db-backups
+
+# encrypted backup files
+*.dump.gz.enc
