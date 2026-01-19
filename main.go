@@ -156,7 +156,8 @@ func performBackup(ctx context.Context, cfg *config.Config, db *config.DatabaseC
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to export database: %w", err)
 	}
-	defer reader.Close()
+	// Note: we don't defer Close() here because we need to check its error
+	// after reading all data (it captures pg_dump exit status)
 
 	// Build backup filename
 	timestamp := time.Now().UTC().Format("20060102-150405")
@@ -204,9 +205,16 @@ func performBackup(ctx context.Context, cfg *config.Config, db *config.DatabaseC
 	// (Required because R2/S3 needs content length for some operations)
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, dataReader); err != nil {
+		reader.Close()
 		return "", 0, fmt.Errorf("failed to read backup data: %w", err)
 	}
 	backupSize := int64(buf.Len())
+
+	// Close the reader to capture any errors from the dump command
+	// (pg_dump exit status is only available after reading all output)
+	if err := reader.Close(); err != nil {
+		return "", 0, fmt.Errorf("database export failed: %w", err)
+	}
 
 	// Upload to R2
 	log.Printf("  Uploading backup to R2...")
