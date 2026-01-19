@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/JorgePasco1/auto-db-backups)](https://goreportcard.com/report/github.com/JorgePasco1/auto-db-backups)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A GitHub Action and CLI tool that automatically backs up PostgreSQL, MySQL, or MongoDB databases to Cloudflare R2 storage.
+A template repository for automatically backing up PostgreSQL, MySQL, or MongoDB databases to Cloudflare R2 storage using GitHub Actions.
 
 ## Features
 
@@ -16,15 +16,21 @@ A GitHub Action and CLI tool that automatically backs up PostgreSQL, MySQL, or M
 - **Encryption** - AES-256-GCM encryption for sensitive data
 - **Retention policies** - Automatically delete old backups by age or count
 - **Webhook notifications** - Get notified on success or failure (Slack, Discord, etc.)
-- **Flexible execution** - Run as GitHub Action or locally via CLI
+- **Template repository** - Fork and configure with your own secrets
+- **Local testing** - Run backups locally before deploying
 
 ## Setup Guide
 
 ### Prerequisites
 
-- A GitHub repository
+- A GitHub account
 - A database to back up (PostgreSQL, MySQL, or MongoDB)
 - A Cloudflare account (free tier is sufficient)
+
+### Step 0: Fork This Repository
+
+1. Click the **Fork** button at the top of this repository
+2. This creates your own copy where backups will run automatically
 
 ### Step 1: Set Up Cloudflare R2
 
@@ -140,44 +146,35 @@ gh secret set DATABASE_NAME_1 --body "my-app-prod"
 gh secret set ENCRYPTION_KEY --body "your-base64-key"
 ```
 
-### Step 5: Create the GitHub Actions Workflow
+### Step 5: Configure the Workflow (Optional)
 
-Create `.github/workflows/backup.yml` in your repository:
+The forked repository already includes `.github/workflows/backup-databases.yml` which is configured to:
+- Run daily at 2 AM UTC (`cron: '0 2 * * *'`)
+- Back up 3 databases (you can add more by adding `DATABASE_CONNECTION_4`, etc.)
+- Use PostgreSQL 17
 
-```yaml
-name: Backup Databases
+**To customize the workflow:**
 
-on:
-  schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
-  workflow_dispatch:       # Manual trigger
+1. Edit `.github/workflows/backup-databases.yml` in your fork
+2. Adjust the schedule if needed:
+   ```yaml
+   schedule:
+     - cron: '0 2 * * *'  # Change time here (UTC)
+   ```
+3. Add more database connections:
+   ```yaml
+   DATABASE_CONNECTION_4: ${{ secrets.DATABASE_CONNECTION_4 }}
+   DATABASE_NAME_4: ${{ secrets.DATABASE_NAME_4 }}
+   ```
+4. Adjust retention settings:
+   ```yaml
+   RETENTION_DAYS: 7      # Keep backups for 7 days
+   RETENTION_COUNT: 30    # Keep last 30 backups
+   ```
 
-jobs:
-  backup:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-
-      - name: Run backup
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          DATABASE_TYPE: postgres
-          DATABASE_CONNECTION_1: ${{ secrets.DATABASE_CONNECTION_1 }}
-          DATABASE_NAME_1: ${{ secrets.DATABASE_NAME_1 }}
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-          COMPRESSION: true
-          RETENTION_DAYS: 7
-        run: |
-          go build -o auto-db-backups .
-          ./auto-db-backups
-```
+**For MySQL or MongoDB:**
+- Change `DATABASE_TYPE: postgres` to `mysql` or `mongodb`
+- Update the client installation step in the workflow
 
 ### Step 6: Test Your Setup
 
@@ -242,64 +239,26 @@ Now you'll receive notifications for all backup operations.
 
 ## Quick Start
 
-### GitHub Actions (Recommended)
+1. **Fork this repository** to your GitHub account
 
-1. **Create the workflow file** `.github/workflows/backup.yml`:
+2. **Add secrets** to your fork (Settings → Secrets and variables → Actions):
+   ```bash
+   gh secret set R2_ACCOUNT_ID --body "your-account-id"
+   gh secret set R2_ACCESS_KEY_ID --body "your-access-key"
+   gh secret set R2_SECRET_ACCESS_KEY --body "your-secret-key"
+   gh secret set R2_BUCKET_NAME --body "db-backups"
+   gh secret set DATABASE_CONNECTION_1 --body "postgresql://..."
+   gh secret set DATABASE_NAME_1 --body "my-app-prod"
+   gh secret set ENCRYPTION_KEY --body "$(openssl rand -base64 32)"
+   ```
 
-```yaml
-name: Backup Databases
+3. **Enable GitHub Actions** in your fork (Actions tab → Enable workflows)
 
-on:
-  schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
-  workflow_dispatch:       # Manual trigger
+4. **Test it** by going to Actions → Backup Neon Databases → Run workflow
 
-jobs:
-  backup:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+That's it! Backups will run daily at 2 AM UTC automatically.
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Run backup
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          DATABASE_TYPE: postgres
-          DATABASE_CONNECTION_1: ${{ secrets.DATABASE_CONNECTION_1 }}
-          DATABASE_NAME_1: ${{ secrets.DATABASE_NAME_1 }}
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-          COMPRESSION: true
-          RETENTION_DAYS: 7
-        run: |
-          go build -o auto-db-backups .
-          ./auto-db-backups
-```
-
-2. **Add secrets** in your repository (Settings → Secrets and variables → Actions):
-
-| Secret | Description |
-|--------|-------------|
-| `R2_ACCOUNT_ID` | Your Cloudflare account ID |
-| `R2_ACCESS_KEY_ID` | R2 API access key |
-| `R2_SECRET_ACCESS_KEY` | R2 API secret key |
-| `R2_BUCKET_NAME` | Name of your R2 bucket |
-| `DATABASE_CONNECTION_1` | Database connection string |
-| `DATABASE_NAME_1` | Friendly name for the backup |
-| `ENCRYPTION_KEY` | Base64-encoded 32-byte key (optional) |
-
-You can set secrets via the GitHub CLI:
-```bash
-gh secret set R2_ACCOUNT_ID
-gh secret set DATABASE_NAME_1 --body "my-app-db"
-```
-
-3. **Trigger the workflow** manually or wait for the schedule.
+See the [Setup Guide](#setup-guide) below for detailed step-by-step instructions.
 
 ### Local Execution (Alternative)
 
@@ -590,8 +549,6 @@ The backup pipeline:
 ```
 .
 ├── main.go                 # Entry point, orchestrates backup flow
-├── action.yml              # GitHub Action definition
-├── Dockerfile              # Container for GitHub Action
 ├── internal/
 │   ├── backup/
 │   │   ├── exporter.go     # Exporter interface
@@ -614,9 +571,11 @@ The backup pipeline:
 │       ├── r2.go           # Cloudflare R2 client
 │       └── retention.go    # Backup retention policies
 ├── scripts/
-│   └── run-local.sh        # Local execution script
+│   ├── run-local.sh        # Local execution script
+│   ├── decrypt-backup.go   # Decrypt backup files
+│   └── restore-backup.sh   # Automated restore script
 └── .github/workflows/
-    ├── backup-databases.yml # Example backup workflow
+    ├── backup-databases.yml # Main backup workflow
     └── ci.yml              # CI pipeline
 ```
 
@@ -657,7 +616,7 @@ case config.DatabaseTypeNewDB:
 const DatabaseTypeNewDB DatabaseType = "newdb"
 ```
 
-4. Update the Dockerfile to include the dump tool.
+4. Update `.github/workflows/backup-databases.yml` to install the required database client.
 
 ## Running Tests
 
@@ -678,11 +637,11 @@ go test ./internal/config/...
 # Build binary
 go build -o auto-db-backups .
 
-# Build with CGO (required for some TLS features)
+# Build with CGO (required for proper TLS/crypto support)
 CGO_ENABLED=1 go build -o auto-db-backups .
 
-# Build Docker image
-docker build -t auto-db-backups .
+# Run locally
+./scripts/run-local.sh
 ```
 
 ## CI Pipeline

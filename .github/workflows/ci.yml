@@ -65,6 +65,3 @@ jobs:
 
       - name: Build binary
         run: go build -v -o auto-db-backups .
-
-      - name: Build Docker image
-        run: docker build -t auto-db-backups:test .

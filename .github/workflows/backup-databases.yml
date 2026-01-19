@@ -1,5 +1,14 @@
 name: Backup Neon Databases
 
+# This workflow backs up multiple databases to Cloudflare R2 storage.
+# When you fork this repository, add your secrets (R2 credentials, database connections)
+# and this workflow will run automatically on schedule or manual trigger.
+#
+# To configure:
+# 1. Add secrets in your fork: Settings → Secrets and variables → Actions
+# 2. Customize the schedule, retention, or database list below
+# 3. For MySQL/MongoDB, change DATABASE_TYPE and install appropriate client
+
 on:
   schedule:
     - cron: '0 2 * * *'
