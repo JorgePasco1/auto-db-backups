@@ -128,7 +128,12 @@ func loadDatabaseConfigs(dbType DatabaseType) ([]DatabaseConfig, error) {
 			break
 		}
 
-		dbName := parseDatabaseNameFromConnectionString(connStr)
+		// Use custom name if provided, otherwise parse from connection string
+		dbName := getInput(fmt.Sprintf("database_name_%d", i))
+		if dbName == "" {
+			dbName = parseDatabaseNameFromConnectionString(connStr)
+		}
+
 		prefix := getInput(fmt.Sprintf("database_prefix_%d", i))
 		if prefix == "" {
 			prefix = fmt.Sprintf("backups/%s/", dbName)
@@ -150,7 +155,12 @@ func loadDatabaseConfigs(dbType DatabaseType) ([]DatabaseConfig, error) {
 	if len(databases) == 0 {
 		connStr := getInput("connection_string")
 		if connStr != "" {
-			dbName := parseDatabaseNameFromConnectionString(connStr)
+			// Use custom name if provided, otherwise parse from connection string
+			dbName := getInput("database_name")
+			if dbName == "" {
+				dbName = parseDatabaseNameFromConnectionString(connStr)
+			}
+
 			prefix := getInput("backup_prefix")
 			if prefix != "" && !strings.HasSuffix(prefix, "/") {
 				prefix += "/"

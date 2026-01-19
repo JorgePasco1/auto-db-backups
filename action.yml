@@ -16,7 +16,7 @@ inputs:
     description: 'Database port (defaults: postgres=5432, mysql=3306, mongodb=27017)'
     required: false
   database_name:
-    description: 'Name of the database to backup'
+    description: 'Custom name for the backup file (defaults to name parsed from connection string)'
     required: false
   database_user:
     description: 'Database username'
