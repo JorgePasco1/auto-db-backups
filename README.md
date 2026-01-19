@@ -1,5 +1,10 @@
 # Auto DB Backups
 
+[![CI](https://github.com/JorgePasco1/auto-db-backups/actions/workflows/ci.yml/badge.svg)](https://github.com/JorgePasco1/auto-db-backups/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/JorgePasco1/auto-db-backups)](https://goreportcard.com/report/github.com/JorgePasco1/auto-db-backups)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A GitHub Action and CLI tool that automatically backs up PostgreSQL, MySQL, or MongoDB databases to Cloudflare R2 storage.
 
 ## Features
