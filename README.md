@@ -18,6 +18,228 @@ A GitHub Action and CLI tool that automatically backs up PostgreSQL, MySQL, or M
 - **Webhook notifications** - Get notified on success or failure (Slack, Discord, etc.)
 - **Flexible execution** - Run as GitHub Action or locally via CLI
 
+## Setup Guide
+
+### Prerequisites
+
+- A GitHub repository
+- A database to back up (PostgreSQL, MySQL, or MongoDB)
+- A Cloudflare account (free tier is sufficient)
+
+### Step 1: Set Up Cloudflare R2
+
+Cloudflare R2 is an S3-compatible object storage service with zero egress fees, making it ideal for backups.
+
+1. **Create a Cloudflare account** (if you don't have one):
+   - Go to [dash.cloudflare.com](https://dash.cloudflare.com/sign-up)
+   - Sign up for a free account
+
+2. **Enable R2**:
+   - From the Cloudflare dashboard, navigate to **R2** in the left sidebar
+   - Click **Purchase R2 Plan** (the free tier includes 10 GB storage)
+   - Accept the terms and enable R2
+
+3. **Create an R2 bucket**:
+   - Click **Create bucket**
+   - Enter a bucket name (e.g., `db-backups`)
+   - Choose a location (optional, or use Automatic)
+   - Click **Create bucket**
+
+4. **Create R2 API tokens**:
+   - In the R2 section, click **Manage R2 API Tokens**
+   - Click **Create API Token**
+   - Configure the token:
+     - **Token name**: `auto-db-backups`
+     - **Permissions**: Select **Object Read & Write**
+     - **Specify bucket(s)**: Choose the bucket you created
+   - Click **Create API Token**
+   - **Important**: Copy these values immediately (they won't be shown again):
+     - Access Key ID
+     - Secret Access Key
+     - Endpoint URL (you'll extract the Account ID from this)
+
+5. **Get your Account ID**:
+   - Your endpoint URL looks like: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
+   - Extract the `<ACCOUNT_ID>` portion - this is your R2 Account ID
+   - Alternatively, find it on the R2 overview page
+
+### Step 2: Get Your Database Connection String
+
+#### For Neon (PostgreSQL)
+
+1. Go to your [Neon Console](https://console.neon.tech)
+2. Select your project and database
+3. Click **Connection Details**
+4. Copy the connection string (it looks like):
+   ```
+   postgresql://user:password@ep-cool-name-123456.us-east-2.aws.neon.tech/dbname?sslmode=require
+   ```
+
+#### For Other PostgreSQL Providers
+
+- **Supabase**: Project Settings → Database → Connection string → URI
+- **Railway**: Your Project → Database → Connect → Connection URL
+- **Heroku**: App Dashboard → Settings → Config Vars → DATABASE_URL
+- **AWS RDS**: Endpoint + credentials in the format:
+  ```
+  postgresql://username:password@endpoint:5432/dbname
+  ```
+
+#### For MySQL Providers
+
+- **PlanetScale**: Dashboard → Connect → Select "General" → Copy connection string
+- **AWS RDS MySQL**: Similar to PostgreSQL format:
+  ```
+  mysql://username:password@endpoint:3306/dbname
+  ```
+
+#### For MongoDB Providers
+
+- **MongoDB Atlas**: Clusters → Connect → Connect your application → Copy connection string
+- Format:
+  ```
+  mongodb+srv://username:password@cluster.mongodb.net/dbname
+  ```
+
+### Step 3: Generate an Encryption Key (Optional but Recommended)
+
+Encrypt your backups for security:
+
+```bash
+openssl rand -base64 32
+```
+
+Save this key securely - you'll need it to decrypt backups later.
+
+### Step 4: Configure GitHub Secrets
+
+Add the following secrets to your GitHub repository:
+
+1. Go to your repository on GitHub
+2. Click **Settings** → **Secrets and variables** → **Actions**
+3. Click **New repository secret** for each:
+
+| Secret Name | Value | Where to Find It |
+|-------------|-------|------------------|
+| `R2_ACCOUNT_ID` | Your Cloudflare account ID | From Step 1.5 above |
+| `R2_ACCESS_KEY_ID` | R2 API access key | From Step 1.4 above |
+| `R2_SECRET_ACCESS_KEY` | R2 API secret key | From Step 1.4 above |
+| `R2_BUCKET_NAME` | Your R2 bucket name | From Step 1.3 above (e.g., `db-backups`) |
+| `DATABASE_CONNECTION_1` | Your database connection string | From Step 2 above |
+| `DATABASE_NAME_1` | Friendly name for backups | Any name (e.g., `my-app-prod`) |
+| `ENCRYPTION_KEY` | Base64 encryption key | From Step 3 above (optional) |
+
+Using the GitHub CLI (faster):
+```bash
+gh secret set R2_ACCOUNT_ID --body "your-account-id"
+gh secret set R2_ACCESS_KEY_ID --body "your-access-key"
+gh secret set R2_SECRET_ACCESS_KEY --body "your-secret-key"
+gh secret set R2_BUCKET_NAME --body "db-backups"
+gh secret set DATABASE_CONNECTION_1 --body "postgresql://..."
+gh secret set DATABASE_NAME_1 --body "my-app-prod"
+gh secret set ENCRYPTION_KEY --body "your-base64-key"
+```
+
+### Step 5: Create the GitHub Actions Workflow
+
+Create `.github/workflows/backup.yml` in your repository:
+
+```yaml
+name: Backup Databases
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Run backup
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          DATABASE_TYPE: postgres
+          DATABASE_CONNECTION_1: ${{ secrets.DATABASE_CONNECTION_1 }}
+          DATABASE_NAME_1: ${{ secrets.DATABASE_NAME_1 }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          COMPRESSION: true
+          RETENTION_DAYS: 7
+        run: |
+          go build -o auto-db-backups .
+          ./auto-db-backups
+```
+
+### Step 6: Test Your Setup
+
+1. **Manual trigger**:
+   - Go to **Actions** tab in your GitHub repository
+   - Select **Backup Databases** workflow
+   - Click **Run workflow** → **Run workflow**
+
+2. **Check the results**:
+   - Watch the workflow run and check for any errors
+   - If successful, verify the backup in your R2 bucket:
+     - Go to Cloudflare dashboard → R2 → Your bucket
+     - You should see a file like: `backups/my-app-prod/postgres-my-app-prod-20240115-140532.dump.gz.enc`
+
+3. **Common issues**:
+   - **Connection refused**: Check your database connection string and firewall rules
+   - **Access denied**: Verify your R2 API token has read/write permissions
+   - **Command not found**: Make sure the workflow has the correct Go version
+
+### Optional: Set Up Notifications
+
+Get notified when backups succeed or fail via Slack, Discord, or any webhook-compatible service.
+
+#### For Slack:
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps)
+2. Click **Create New App** → **From scratch**
+3. Name your app (e.g., "Database Backups") and select your workspace
+4. Go to **Incoming Webhooks** and toggle **Activate Incoming Webhooks**
+5. Click **Add New Webhook to Workspace**
+6. Choose a channel and click **Allow**
+7. Copy the webhook URL (looks like: `https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXX`)
+
+#### For Discord:
+
+1. Go to your Discord server settings
+2. Navigate to **Integrations** → **Webhooks**
+3. Click **New Webhook**
+4. Name it (e.g., "DB Backups"), choose a channel
+5. Copy the webhook URL
+
+#### Add to GitHub Secrets:
+
+```bash
+gh secret set WEBHOOK_URL --body "https://hooks.slack.com/services/..."
+```
+
+Or add it manually in GitHub repository settings.
+
+#### Update your workflow:
+
+Add these environment variables to your `.github/workflows/backup.yml`:
+```yaml
+env:
+  # ... existing env vars ...
+  WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+  NOTIFY_ON_SUCCESS: true
+  NOTIFY_ON_FAILURE: true
+```
+
+Now you'll receive notifications for all backup operations.
+
 ## Quick Start
 
 ### GitHub Actions (Recommended)
@@ -79,20 +301,59 @@ gh secret set DATABASE_NAME_1 --body "my-app-db"
 
 3. **Trigger the workflow** manually or wait for the schedule.
 
-### Local Execution
+### Local Execution (Alternative)
+
+If you prefer to run backups locally or want to test before setting up GitHub Actions:
 
 1. **Clone and configure**:
 ```bash
 git clone https://github.com/jorgepascosoto/auto-db-backups.git
 cd auto-db-backups
-cp .env.example .env
-# Edit .env with your credentials
 ```
 
-2. **Run the backup**:
+2. **Create a `.env` file** with your credentials:
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env with your actual values
+nano .env  # or use your preferred editor
+```
+
+Example `.env` file:
+```bash
+R2_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your-access-key-id
+R2_SECRET_ACCESS_KEY=your-secret-access-key
+R2_BUCKET_NAME=db-backups
+
+DATABASE_TYPE=postgres
+DATABASE_CONNECTION_1=postgresql://user:pass@host:5432/dbname
+DATABASE_NAME_1=my-app-prod
+
+ENCRYPTION_KEY=your-base64-encryption-key
+COMPRESSION=true
+RETENTION_DAYS=7
+```
+
+3. **Install Go** (if not already installed):
+```bash
+# macOS
+brew install go
+
+# Ubuntu/Debian
+sudo apt install golang
+
+# Verify installation
+go version  # Should be 1.21 or higher
+```
+
+4. **Run the backup**:
 ```bash
 ./scripts/run-local.sh
 ```
+
+The script will build the binary and run the backup using your `.env` configuration.
 
 ## Configuration
 
@@ -188,32 +449,111 @@ backups/my-app/postgres-my-app-20240115-140532.dump.gz.enc
 
 ## Restoring Backups
 
-### Download from R2
+### Step 1: Download from R2
 
-Using the AWS CLI (configured for R2):
+#### Option A: Using the Cloudflare Dashboard
+
+1. Go to your Cloudflare dashboard → R2 → Your bucket
+2. Navigate to the backup file you want to restore
+3. Click the file and select **Download**
+
+#### Option B: Using AWS CLI
+
+Configure the AWS CLI for R2:
+```bash
+aws configure
+# AWS Access Key ID: <your-r2-access-key-id>
+# AWS Secret Access Key: <your-r2-secret-access-key>
+# Default region: auto
+```
+
+Download the backup:
 ```bash
 aws s3 cp s3://your-bucket/backups/my-app/postgres-my-app-20240115-140532.dump.gz.enc ./backup.dump.gz.enc \
   --endpoint-url https://<account-id>.r2.cloudflarestorage.com
 ```
 
-### Decrypt (if encrypted)
+### Step 2: Restore Using the Automated Script (Easiest)
 
+This repository includes a convenience script that handles decryption, decompression, and restoration automatically.
+
+1. **Set up environment**:
 ```bash
-# Using OpenSSL (the first 12 bytes are the nonce)
-# You'll need a decryption tool that supports AES-256-GCM
-# See the decrypt example in scripts/ directory
+# Clone the repository if you haven't already
+git clone https://github.com/jorgepascosoto/auto-db-backups.git
+cd auto-db-backups
+
+# Create .env file with your encryption key
+echo "ENCRYPTION_KEY=your-base64-encryption-key" > .env
+source .env
 ```
 
-### Decompress (if compressed)
+2. **Install PostgreSQL locally** (if not already installed):
+```bash
+# macOS
+brew install postgresql@17
+
+# Ubuntu/Debian
+sudo apt install postgresql-17
+
+# The script uses PostgreSQL 17 to match the version used for backups
+```
+
+3. **Run the restore script**:
+```bash
+./scripts/restore-backup.sh backup.dump.gz.enc my_restored_db
+```
+
+This will:
+- Decrypt the backup using your `ENCRYPTION_KEY`
+- Decompress the file
+- Create a new database called `my_restored_db`
+- Restore the data into it
+- Display connection instructions
+
+4. **Connect to the restored database**:
+```bash
+psql my_restored_db
+```
+
+### Manual Restoration (Advanced)
+
+If you prefer to restore manually or need more control:
+
+#### Step 2a: Decrypt (if encrypted)
+
+```bash
+# Set your encryption key
+export ENCRYPTION_KEY="your-base64-encryption-key"
+
+# Decrypt using the provided script
+go run scripts/decrypt-backup.go backup.dump.gz.enc backup.dump.gz
+```
+
+#### Step 2b: Decompress (if compressed)
 
 ```bash
 gunzip backup.dump.gz
 ```
 
-### Restore PostgreSQL
+#### Step 2c: Restore to PostgreSQL
 
 ```bash
-pg_restore -h localhost -U user -d dbname backup.dump
+# Create the database
+createdb my_database
+
+# Restore the backup
+pg_restore --clean --if-exists --no-owner --no-privileges -d my_database backup.dump
+```
+
+For MySQL:
+```bash
+mysql -u user -p dbname < backup.sql
+```
+
+For MongoDB:
+```bash
+mongorestore --archive=backup.archive
 ```
 
 ---
