@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -20,6 +21,10 @@ import (
 )
 
 func main() {
+	// Parse command-line flags
+	databaseName := flag.String("database", "", "Optional: backup only the specified database by name")
+	flag.Parse()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -32,18 +37,33 @@ func main() {
 		cancel()
 	}()
 
-	if err := run(ctx); err != nil {
+	if err := run(ctx, *databaseName); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context, databaseName string) error {
 	startTime := time.Now()
 
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Filter databases if specific database name is provided
+	if databaseName != "" {
+		var filtered []config.DatabaseConfig
+		for _, db := range cfg.Databases {
+			if db.Name == databaseName {
+				filtered = append(filtered, db)
+			}
+		}
+		if len(filtered) == 0 {
+			return fmt.Errorf("database '%s' not found in configuration. Available databases: %v", databaseName, getDatabaseNames(cfg.Databases))
+		}
+		cfg.Databases = filtered
+		log.Printf("Filtering to single database: %s", databaseName)
 	}
 
 	log.Printf("Starting backup for %d database(s)", len(cfg.Databases))
@@ -249,4 +269,12 @@ func sendNotifications(ctx context.Context, cfg *config.Config, summary *notify.
 	}
 
 	return nil
+}
+
+func getDatabaseNames(databases []config.DatabaseConfig) []string {
+	names := make([]string, len(databases))
+	for i, db := range databases {
+		names[i] = db.Name
+	}
+	return names
 }
