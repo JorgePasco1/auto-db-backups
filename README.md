@@ -9,6 +9,7 @@ A template repository for automatically backing up PostgreSQL, MySQL, or MongoDB
 ## Features
 
 - **Multi-database support** - Back up multiple databases in a single run
+- **Selective backups** - Backup a single database by name with `--database` flag
 - **Multiple database types** - PostgreSQL, MySQL, MongoDB
 - **Cloudflare R2 storage** - Cost-effective S3-compatible object storage
 - **Compression** - Gzip compression to reduce storage costs
@@ -319,6 +320,29 @@ go version  # Should be 1.21 or higher
 
 The script will build the binary and run the backup using your `.env` configuration.
 
+### Syncing a Single Database
+
+If you have multiple databases configured but want to backup just one (e.g., for testing or on-demand backups):
+
+```bash
+./scripts/sync-database.sh <database-name>
+```
+
+Example:
+```bash
+# Backup only the 'my-app-prod' database
+./scripts/sync-database.sh my-app-prod
+```
+
+This uses the `--database` flag to filter which database to backup. The database name must match the `DATABASE_NAME_1` (or `DATABASE_NAME_2`, etc.) value in your `.env` file.
+
+**Common use cases:**
+- Test a single database configuration before enabling all backups
+- Run an on-demand backup for a specific database
+- Troubleshoot connection issues for one database at a time
+
+**Note:** This requires PostgreSQL 17 to be installed locally (`brew install postgresql@17`).
+
 ## Configuration
 
 ### Environment Variables
@@ -578,7 +602,8 @@ The backup pipeline:
 │       ├── r2.go           # Cloudflare R2 client
 │       └── retention.go    # Backup retention policies
 ├── scripts/
-│   ├── run-local.sh        # Local execution script
+│   ├── run-local.sh        # Local execution script (all databases)
+│   ├── sync-database.sh    # Sync a single database by name
 │   ├── decrypt-backup.go   # Decrypt backup files
 │   └── restore-backup.sh   # Automated restore script
 └── .github/workflows/
@@ -647,8 +672,14 @@ go build -o auto-db-backups .
 # Build with CGO (required for proper TLS/crypto support)
 CGO_ENABLED=1 go build -o auto-db-backups .
 
-# Run locally
+# Run locally (all databases)
 ./scripts/run-local.sh
+
+# Run locally (single database)
+./scripts/sync-database.sh my-database-name
+
+# Or run the binary directly with --database flag
+./auto-db-backups --database my-database-name
 ```
 
 ## CI Pipeline
