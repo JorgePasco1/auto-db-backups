@@ -40,12 +40,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
           DATABASE_TYPE: postgres
-          DATABASE_CONNECTION_1: ${{ secrets.DATABASE_CONNECTION_1 }}
-          DATABASE_NAME_1: ${{ secrets.DATABASE_NAME_1 }}
-          DATABASE_CONNECTION_2: ${{ secrets.DATABASE_CONNECTION_2 }}
-          DATABASE_NAME_2: ${{ secrets.DATABASE_NAME_2 }}
-          DATABASE_CONNECTION_3: ${{ secrets.DATABASE_CONNECTION_3 }}
-          DATABASE_NAME_3: ${{ secrets.DATABASE_NAME_3 }}
+          DATABASES_JSON: ${{ secrets.DATABASES_JSON }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           COMPRESSION: true
           RETENTION_DAYS: 7

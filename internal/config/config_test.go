@@ -19,25 +19,11 @@ func setTestEnv(t *testing.T, envVars map[string]string) {
 // minimalValidEnv returns the minimum required environment variables for a valid config
 func minimalValidEnv() map[string]string {
 	return map[string]string{
-		"INPUT_DATABASE_TYPE":         "postgres",
-		"INPUT_DATABASE_CONNECTION_1": "postgres://user:pass@localhost:5432/testdb",
-		"INPUT_R2_ACCOUNT_ID":         "account123",
-		"INPUT_R2_ACCESS_KEY_ID":      "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY":  "secretkey",
-		"INPUT_R2_BUCKET_NAME":        "my-bucket",
-	}
-}
-
-// minimalValidEnvWithHost returns minimum required env vars using host/name instead of connection string
-func minimalValidEnvWithHost() map[string]string {
-	return map[string]string{
-		"INPUT_DATABASE_TYPE":        "postgres",
-		"INPUT_DATABASE_HOST":        "localhost",
-		"INPUT_DATABASE_NAME":        "testdb",
-		"INPUT_R2_ACCOUNT_ID":        "account123",
-		"INPUT_R2_ACCESS_KEY_ID":     "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY": "secretkey",
-		"INPUT_R2_BUCKET_NAME":       "my-bucket",
+		"DATABASES_JSON":       `[{"connection": "postgres://user:pass@localhost:5432/testdb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
 	}
 }
 
@@ -51,7 +37,11 @@ func TestLoad_MinimalValidConfig(t *testing.T) {
 	require.Len(t, cfg.Databases, 1)
 	assert.Equal(t, DatabaseTypePostgres, cfg.Databases[0].Type)
 	assert.Equal(t, "testdb", cfg.Databases[0].Name)
-	assert.Equal(t, 5432, cfg.Databases[0].Port) // default port
+	assert.Equal(t, "localhost", cfg.Databases[0].Host)
+	assert.Equal(t, 5432, cfg.Databases[0].Port)
+	assert.Equal(t, "user", cfg.Databases[0].User)
+	assert.Equal(t, "pass", cfg.Databases[0].Password)
+	assert.Equal(t, "backups/testdb/", cfg.Databases[0].BackupPrefix)
 	assert.Equal(t, "account123", cfg.R2AccountID)
 	assert.Equal(t, "accesskey", cfg.R2AccessKeyID)
 	assert.Equal(t, "secretkey", cfg.R2SecretAccessKey)
@@ -63,14 +53,15 @@ func TestLoad_MinimalValidConfig(t *testing.T) {
 
 func TestLoad_MultipleConnections(t *testing.T) {
 	env := map[string]string{
-		"INPUT_DATABASE_TYPE":         "postgres",
-		"INPUT_DATABASE_CONNECTION_1": "postgres://user:pass@host1:5432/db1",
-		"INPUT_DATABASE_CONNECTION_2": "postgres://user:pass@host2:5432/db2",
-		"INPUT_DATABASE_CONNECTION_3": "postgres://user:pass@host3:5432/db3",
-		"INPUT_R2_ACCOUNT_ID":         "account123",
-		"INPUT_R2_ACCESS_KEY_ID":      "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY":  "secretkey",
-		"INPUT_R2_BUCKET_NAME":        "my-bucket",
+		"DATABASES_JSON": `[
+			{"connection": "postgres://user:pass@host1:5432/db1"},
+			{"connection": "postgres://user:pass@host2:5432/db2"},
+			{"connection": "postgres://user:pass@host3:5432/db3"}
+		]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
 	}
 	setTestEnv(t, env)
 
@@ -79,19 +70,88 @@ func TestLoad_MultipleConnections(t *testing.T) {
 	require.Len(t, cfg.Databases, 3)
 
 	assert.Equal(t, "db1", cfg.Databases[0].Name)
+	assert.Equal(t, "host1", cfg.Databases[0].Host)
 	assert.Equal(t, "db2", cfg.Databases[1].Name)
+	assert.Equal(t, "host2", cfg.Databases[1].Host)
 	assert.Equal(t, "db3", cfg.Databases[2].Name)
+	assert.Equal(t, "host3", cfg.Databases[2].Host)
 }
 
-func TestLoad_RegularEnvVars(t *testing.T) {
-	// Test that regular env vars (without INPUT_ prefix) work
+func TestLoad_WithCustomNames(t *testing.T) {
 	env := map[string]string{
-		"DATABASE_TYPE":         "postgres",
-		"DATABASE_CONNECTION_1": "postgres://user:pass@localhost:5432/testdb",
-		"R2_ACCOUNT_ID":         "account123",
-		"R2_ACCESS_KEY_ID":      "accesskey",
-		"R2_SECRET_ACCESS_KEY":  "secretkey",
-		"R2_BUCKET_NAME":        "my-bucket",
+		"DATABASES_JSON": `[
+			{"connection": "postgres://user:pass@host:5432/neondb", "name": "users-db"},
+			{"connection": "postgres://user:pass@host:5432/neondb", "name": "orders-db"}
+		]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 2)
+
+	assert.Equal(t, "users-db", cfg.Databases[0].Name)
+	assert.Equal(t, "backups/users-db/", cfg.Databases[0].BackupPrefix)
+	assert.Equal(t, "orders-db", cfg.Databases[1].Name)
+	assert.Equal(t, "backups/orders-db/", cfg.Databases[1].BackupPrefix)
+}
+
+func TestLoad_WithCustomPrefixes(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON": `[
+			{"connection": "postgres://user:pass@host:5432/db1", "prefix": "prod/daily/"},
+			{"connection": "postgres://user:pass@host:5432/db2", "prefix": "staging"}
+		]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 2)
+
+	assert.Equal(t, "prod/daily/", cfg.Databases[0].BackupPrefix)
+	assert.Equal(t, "staging/", cfg.Databases[1].BackupPrefix) // Should add trailing slash
+}
+
+func TestLoad_WithPerDatabaseTypes(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON": `[
+			{"connection": "postgres://user:pass@host1:5432/db1"},
+			{"connection": "mysql://user:pass@host2:3306/db2", "type": "mysql"},
+			{"connection": "mongodb://user:pass@host3:27017/db3", "type": "mongodb"}
+		]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 3)
+
+	assert.Equal(t, DatabaseTypePostgres, cfg.Databases[0].Type)
+	assert.Equal(t, DatabaseTypeMySQL, cfg.Databases[1].Type)
+	assert.Equal(t, DatabaseTypeMongoDB, cfg.Databases[2].Type)
+}
+
+func TestLoad_InputPrefixedEnvVars(t *testing.T) {
+	// Test that INPUT_ prefixed env vars (GitHub Actions) work
+	env := map[string]string{
+		"INPUT_DATABASES_JSON":       `[{"connection": "postgres://user:pass@localhost:5432/testdb"}]`,
+		"INPUT_R2_ACCOUNT_ID":        "account123",
+		"INPUT_R2_ACCESS_KEY_ID":     "accesskey",
+		"INPUT_R2_SECRET_ACCESS_KEY": "secretkey",
+		"INPUT_R2_BUCKET_NAME":       "my-bucket",
 	}
 	setTestEnv(t, env)
 
@@ -100,6 +160,23 @@ func TestLoad_RegularEnvVars(t *testing.T) {
 	require.NotNil(t, cfg)
 	require.Len(t, cfg.Databases, 1)
 	assert.Equal(t, "testdb", cfg.Databases[0].Name)
+}
+
+func TestLoad_RegularEnvTakesPrecedence(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON":       `[{"connection": "postgres://user:pass@localhost:5432/regular"}]`,
+		"INPUT_DATABASES_JSON": `[{"connection": "postgres://user:pass@localhost:5432/input"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 1)
+	assert.Equal(t, "regular", cfg.Databases[0].Name)
 }
 
 func TestLoad_DatabaseTypeNormalization(t *testing.T) {
@@ -126,7 +203,7 @@ func TestLoad_DatabaseTypeNormalization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := minimalValidEnv()
-			env["INPUT_DATABASE_TYPE"] = tt.input
+			env["DATABASE_TYPE"] = tt.input
 			setTestEnv(t, env)
 
 			cfg, err := Load()
@@ -148,7 +225,7 @@ func TestLoad_UnsupportedDatabaseType(t *testing.T) {
 	for _, dbType := range tests {
 		t.Run(dbType, func(t *testing.T) {
 			env := minimalValidEnv()
-			env["INPUT_DATABASE_TYPE"] = dbType
+			env["DATABASE_TYPE"] = dbType
 			setTestEnv(t, env)
 
 			cfg, err := Load()
@@ -157,6 +234,24 @@ func TestLoad_UnsupportedDatabaseType(t *testing.T) {
 			assert.Contains(t, err.Error(), "unsupported database type")
 		})
 	}
+}
+
+func TestLoad_UnsupportedPerDatabaseType(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON": `[
+			{"connection": "postgres://user:pass@host:5432/db", "type": "oracle"}
+		]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	assert.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "unsupported type")
 }
 
 func TestLoad_DefaultPorts(t *testing.T) {
@@ -172,8 +267,14 @@ func TestLoad_DefaultPorts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := minimalValidEnv()
-			env["INPUT_DATABASE_TYPE"] = tt.dbType
+			env := map[string]string{
+				"DATABASE_TYPE":        tt.dbType,
+				"DATABASES_JSON":       `[{"connection": "` + tt.dbType + `://user:pass@localhost/testdb"}]`,
+				"R2_ACCOUNT_ID":        "account123",
+				"R2_ACCESS_KEY_ID":     "accesskey",
+				"R2_SECRET_ACCESS_KEY": "secretkey",
+				"R2_BUCKET_NAME":       "my-bucket",
+			}
 			setTestEnv(t, env)
 
 			cfg, err := Load()
@@ -185,8 +286,13 @@ func TestLoad_DefaultPorts(t *testing.T) {
 }
 
 func TestLoad_CustomPort(t *testing.T) {
-	env := minimalValidEnvWithHost()
-	env["INPUT_DATABASE_PORT"] = "15432"
+	env := map[string]string{
+		"DATABASES_JSON":       `[{"connection": "postgres://user:pass@localhost:15432/testdb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -195,33 +301,127 @@ func TestLoad_CustomPort(t *testing.T) {
 	assert.Equal(t, 15432, cfg.Databases[0].Port)
 }
 
-func TestLoad_InvalidPort(t *testing.T) {
-	env := minimalValidEnvWithHost()
-	env["INPUT_DATABASE_PORT"] = "not-a-number"
-	setTestEnv(t, env)
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.Len(t, cfg.Databases, 1)
-	// Invalid port should fall back to default
-	assert.Equal(t, 5432, cfg.Databases[0].Port)
-}
-
-func TestLoad_ConnectionString(t *testing.T) {
+func TestLoad_ConnectionStringParsing_Postgres(t *testing.T) {
 	env := map[string]string{
-		"INPUT_DATABASE_TYPE":        "postgres",
-		"INPUT_CONNECTION_STRING":    "postgres://user:pass@host:5432/db",
-		"INPUT_R2_ACCOUNT_ID":        "account123",
-		"INPUT_R2_ACCESS_KEY_ID":     "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY": "secretkey",
-		"INPUT_R2_BUCKET_NAME":       "my-bucket",
+		"DATABASES_JSON":       `[{"connection": "postgresql://admin:secret123@db.example.com:5432/mydb?sslmode=require"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
 	}
 	setTestEnv(t, env)
 
 	cfg, err := Load()
 	require.NoError(t, err)
 	require.Len(t, cfg.Databases, 1)
-	assert.Equal(t, "postgres://user:pass@host:5432/db", cfg.Databases[0].ConnectionString)
+
+	db := cfg.Databases[0]
+	assert.Equal(t, "db.example.com", db.Host)
+	assert.Equal(t, 5432, db.Port)
+	assert.Equal(t, "admin", db.User)
+	assert.Equal(t, "secret123", db.Password)
+	assert.Equal(t, "mydb", db.Name)
+}
+
+func TestLoad_ConnectionStringParsing_MySQL(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_TYPE":        "mysql",
+		"DATABASES_JSON":       `[{"connection": "mysql://root:password@mysql.example.com:3306/appdb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 1)
+
+	db := cfg.Databases[0]
+	assert.Equal(t, DatabaseTypeMySQL, db.Type)
+	assert.Equal(t, "mysql.example.com", db.Host)
+	assert.Equal(t, 3306, db.Port)
+	assert.Equal(t, "root", db.User)
+	assert.Equal(t, "password", db.Password)
+	assert.Equal(t, "appdb", db.Name)
+}
+
+func TestLoad_ConnectionStringParsing_MongoDB(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_TYPE":        "mongodb",
+		"DATABASES_JSON":       `[{"connection": "mongodb://admin:mongopass@mongo.example.com:27017/analytics"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 1)
+
+	db := cfg.Databases[0]
+	assert.Equal(t, DatabaseTypeMongoDB, db.Type)
+	assert.Equal(t, "mongo.example.com", db.Host)
+	assert.Equal(t, 27017, db.Port)
+	assert.Equal(t, "admin", db.User)
+	assert.Equal(t, "mongopass", db.Password)
+	assert.Equal(t, "analytics", db.Name)
+}
+
+func TestLoad_ConnectionStringParsing_MongoDBSRV(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_TYPE":        "mongodb",
+		"DATABASES_JSON":       `[{"connection": "mongodb+srv://admin:mongopass@cluster0.example.mongodb.net/mydb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 1)
+
+	db := cfg.Databases[0]
+	assert.Equal(t, "cluster0.example.mongodb.net", db.Host)
+	assert.Equal(t, "mydb", db.Name)
+}
+
+func TestLoad_ConnectionStringParsing_NoPort(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON":       `[{"connection": "postgres://user:pass@localhost/testdb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 1)
+	assert.Equal(t, 5432, cfg.Databases[0].Port) // Default port
+}
+
+func TestLoad_ConnectionStringParsing_NoPassword(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON":       `[{"connection": "postgres://user@localhost:5432/testdb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.Databases, 1)
+	assert.Equal(t, "user", cfg.Databases[0].User)
+	assert.Equal(t, "", cfg.Databases[0].Password)
 }
 
 func TestLoad_EncryptionKey_Valid(t *testing.T) {
@@ -231,7 +431,7 @@ func TestLoad_EncryptionKey_Valid(t *testing.T) {
 	for i := range key {
 		key[i] = byte(i)
 	}
-	env["INPUT_ENCRYPTION_KEY"] = base64.StdEncoding.EncodeToString(key)
+	env["ENCRYPTION_KEY"] = base64.StdEncoding.EncodeToString(key)
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -252,7 +452,7 @@ func TestLoad_EncryptionKey_None(t *testing.T) {
 
 func TestLoad_EncryptionKey_InvalidBase64(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_ENCRYPTION_KEY"] = "not-valid-base64!!!"
+	env["ENCRYPTION_KEY"] = "not-valid-base64!!!"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -264,7 +464,7 @@ func TestLoad_EncryptionKey_InvalidBase64(t *testing.T) {
 func TestLoad_EncryptionKey_TooShort(t *testing.T) {
 	env := minimalValidEnv()
 	shortKey := make([]byte, 16) // Only 16 bytes instead of 32
-	env["INPUT_ENCRYPTION_KEY"] = base64.StdEncoding.EncodeToString(shortKey)
+	env["ENCRYPTION_KEY"] = base64.StdEncoding.EncodeToString(shortKey)
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -276,7 +476,7 @@ func TestLoad_EncryptionKey_TooShort(t *testing.T) {
 func TestLoad_EncryptionKey_TooLong(t *testing.T) {
 	env := minimalValidEnv()
 	longKey := make([]byte, 64) // 64 bytes instead of 32
-	env["INPUT_ENCRYPTION_KEY"] = base64.StdEncoding.EncodeToString(longKey)
+	env["ENCRYPTION_KEY"] = base64.StdEncoding.EncodeToString(longKey)
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -308,7 +508,7 @@ func TestLoad_CompressionSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			env := minimalValidEnv()
 			if tt.value != "" {
-				env["INPUT_COMPRESSION"] = tt.value
+				env["COMPRESSION"] = tt.value
 			}
 			setTestEnv(t, env)
 
@@ -332,7 +532,7 @@ func TestLoad_RetentionSettings_None(t *testing.T) {
 
 func TestLoad_RetentionSettings_DaysOnly(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_RETENTION_DAYS"] = "30"
+	env["RETENTION_DAYS"] = "30"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -344,7 +544,7 @@ func TestLoad_RetentionSettings_DaysOnly(t *testing.T) {
 
 func TestLoad_RetentionSettings_CountOnly(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_RETENTION_COUNT"] = "10"
+	env["RETENTION_COUNT"] = "10"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -356,8 +556,8 @@ func TestLoad_RetentionSettings_CountOnly(t *testing.T) {
 
 func TestLoad_RetentionSettings_Both(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_RETENTION_DAYS"] = "30"
-	env["INPUT_RETENTION_COUNT"] = "10"
+	env["RETENTION_DAYS"] = "30"
+	env["RETENTION_COUNT"] = "10"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -369,7 +569,7 @@ func TestLoad_RetentionSettings_Both(t *testing.T) {
 
 func TestLoad_RetentionSettings_InvalidDays(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_RETENTION_DAYS"] = "invalid"
+	env["RETENTION_DAYS"] = "invalid"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -390,7 +590,7 @@ func TestLoad_NotificationSettings_Default(t *testing.T) {
 
 func TestLoad_NotificationSettings_WebhookURL(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_WEBHOOK_URL"] = "https://hooks.example.com/webhook"
+	env["WEBHOOK_URL"] = "https://hooks.example.com/webhook"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -400,7 +600,7 @@ func TestLoad_NotificationSettings_WebhookURL(t *testing.T) {
 
 func TestLoad_NotificationSettings_SuccessDisabled(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_NOTIFY_ON_SUCCESS"] = "false"
+	env["NOTIFY_ON_SUCCESS"] = "false"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -410,7 +610,7 @@ func TestLoad_NotificationSettings_SuccessDisabled(t *testing.T) {
 
 func TestLoad_NotificationSettings_FailureDisabled(t *testing.T) {
 	env := minimalValidEnv()
-	env["INPUT_NOTIFY_ON_FAILURE"] = "false"
+	env["NOTIFY_ON_FAILURE"] = "false"
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -418,44 +618,9 @@ func TestLoad_NotificationSettings_FailureDisabled(t *testing.T) {
 	assert.False(t, cfg.NotifyOnFailure)
 }
 
-func TestLoad_BackupPrefix_AutoGenerated(t *testing.T) {
-	env := minimalValidEnv()
-	setTestEnv(t, env)
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.Len(t, cfg.Databases, 1)
-	// Auto-generated prefix based on database name
-	assert.Equal(t, "backups/testdb/", cfg.Databases[0].BackupPrefix)
-}
-
-func TestLoad_BackupPrefix_CustomPrefix(t *testing.T) {
-	env := minimalValidEnv()
-	env["INPUT_DATABASE_PREFIX_1"] = "myapp/prod/"
-	setTestEnv(t, env)
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.Len(t, cfg.Databases, 1)
-	assert.Equal(t, "myapp/prod/", cfg.Databases[0].BackupPrefix)
-}
-
-func TestLoad_AllDatabaseCredentials(t *testing.T) {
-	env := minimalValidEnvWithHost()
-	env["INPUT_DATABASE_USER"] = "dbuser"
-	env["INPUT_DATABASE_PASSWORD"] = "dbpass123"
-	setTestEnv(t, env)
-
-	cfg, err := Load()
-	require.NoError(t, err)
-	require.Len(t, cfg.Databases, 1)
-	assert.Equal(t, "dbuser", cfg.Databases[0].User)
-	assert.Equal(t, "dbpass123", cfg.Databases[0].Password)
-}
-
 func TestValidate_MissingR2AccountID(t *testing.T) {
 	env := minimalValidEnv()
-	delete(env, "INPUT_R2_ACCOUNT_ID")
+	delete(env, "R2_ACCOUNT_ID")
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -466,7 +631,7 @@ func TestValidate_MissingR2AccountID(t *testing.T) {
 
 func TestValidate_MissingR2AccessKeyID(t *testing.T) {
 	env := minimalValidEnv()
-	delete(env, "INPUT_R2_ACCESS_KEY_ID")
+	delete(env, "R2_ACCESS_KEY_ID")
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -477,7 +642,7 @@ func TestValidate_MissingR2AccessKeyID(t *testing.T) {
 
 func TestValidate_MissingR2SecretAccessKey(t *testing.T) {
 	env := minimalValidEnv()
-	delete(env, "INPUT_R2_SECRET_ACCESS_KEY")
+	delete(env, "R2_SECRET_ACCESS_KEY")
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -488,7 +653,7 @@ func TestValidate_MissingR2SecretAccessKey(t *testing.T) {
 
 func TestValidate_MissingR2BucketName(t *testing.T) {
 	env := minimalValidEnv()
-	delete(env, "INPUT_R2_BUCKET_NAME")
+	delete(env, "R2_BUCKET_NAME")
 	setTestEnv(t, env)
 
 	cfg, err := Load()
@@ -497,38 +662,67 @@ func TestValidate_MissingR2BucketName(t *testing.T) {
 	assert.Contains(t, err.Error(), "r2_bucket_name is required")
 }
 
-func TestValidate_MissingDatabaseHost(t *testing.T) {
-	// When using individual params, if host is missing, no database gets configured
-	env := minimalValidEnvWithHost()
-	delete(env, "INPUT_DATABASE_HOST")
+func TestLoad_MissingDatabasesJSON(t *testing.T) {
+	env := map[string]string{
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
 	setTestEnv(t, env)
 
 	cfg, err := Load()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "no database connections configured")
+	assert.Contains(t, err.Error(), "DATABASES_JSON is required")
 }
 
-func TestValidate_MissingDatabaseName(t *testing.T) {
-	// When using individual params with host but no name, validation catches it
-	env := minimalValidEnvWithHost()
-	delete(env, "INPUT_DATABASE_NAME")
+func TestLoad_EmptyDatabasesJSON(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON":       `[]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
 	setTestEnv(t, env)
 
 	cfg, err := Load()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "name is required")
+	assert.Contains(t, err.Error(), "DATABASES_JSON must contain at least one database")
 }
 
-func TestValidate_ConnectionStringAllowsMissingHostAndName(t *testing.T) {
-	env := minimalValidEnv()
-	// minimalValidEnv uses connection string, no host/name needed
+func TestLoad_InvalidJSON(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON":       `not valid json`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
 	setTestEnv(t, env)
 
 	cfg, err := Load()
-	require.NoError(t, err)
-	assert.NotNil(t, cfg)
+	assert.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "invalid DATABASES_JSON")
+}
+
+func TestLoad_MissingConnectionField(t *testing.T) {
+	env := map[string]string{
+		"DATABASES_JSON":       `[{"name": "mydb"}]`,
+		"R2_ACCOUNT_ID":        "account123",
+		"R2_ACCESS_KEY_ID":     "accesskey",
+		"R2_SECRET_ACCESS_KEY": "secretkey",
+		"R2_BUCKET_NAME":       "my-bucket",
+	}
+	setTestEnv(t, env)
+
+	cfg, err := Load()
+	assert.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.Contains(t, err.Error(), "connection is required")
 }
 
 func TestGetInput_TrimsWhitespace(t *testing.T) {
@@ -626,20 +820,20 @@ func TestConfig_FullConfig(t *testing.T) {
 	}
 
 	env := map[string]string{
-		"INPUT_DATABASE_TYPE":         "postgres",
-		"INPUT_DATABASE_CONNECTION_1": "postgres://admin:secret123@db.example.com:15432/mydb",
-		"INPUT_DATABASE_PREFIX_1":     "prod/daily/",
-		"INPUT_R2_ACCOUNT_ID":         "cf-account-123",
-		"INPUT_R2_ACCESS_KEY_ID":      "cf-access-key",
-		"INPUT_R2_SECRET_ACCESS_KEY":  "cf-secret-key",
-		"INPUT_R2_BUCKET_NAME":        "backups-bucket",
-		"INPUT_COMPRESSION":           "true",
-		"INPUT_ENCRYPTION_KEY":        base64.StdEncoding.EncodeToString(key),
-		"INPUT_RETENTION_DAYS":        "30",
-		"INPUT_RETENTION_COUNT":       "10",
-		"INPUT_WEBHOOK_URL":           "https://hooks.example.com/notify",
-		"INPUT_NOTIFY_ON_SUCCESS":     "true",
-		"INPUT_NOTIFY_ON_FAILURE":     "true",
+		"DATABASES_JSON": `[
+			{"connection": "postgres://admin:secret123@db.example.com:15432/mydb", "name": "prod-db", "prefix": "prod/daily/"}
+		]`,
+		"R2_ACCOUNT_ID":        "cf-account-123",
+		"R2_ACCESS_KEY_ID":     "cf-access-key",
+		"R2_SECRET_ACCESS_KEY": "cf-secret-key",
+		"R2_BUCKET_NAME":       "backups-bucket",
+		"COMPRESSION":          "true",
+		"ENCRYPTION_KEY":       base64.StdEncoding.EncodeToString(key),
+		"RETENTION_DAYS":       "30",
+		"RETENTION_COUNT":      "10",
+		"WEBHOOK_URL":          "https://hooks.example.com/notify",
+		"NOTIFY_ON_SUCCESS":    "true",
+		"NOTIFY_ON_FAILURE":    "true",
 	}
 	setTestEnv(t, env)
 
@@ -651,7 +845,11 @@ func TestConfig_FullConfig(t *testing.T) {
 	require.Len(t, cfg.Databases, 1)
 	db := cfg.Databases[0]
 	assert.Equal(t, DatabaseTypePostgres, db.Type)
-	assert.Equal(t, "mydb", db.Name)
+	assert.Equal(t, "prod-db", db.Name)
+	assert.Equal(t, "db.example.com", db.Host)
+	assert.Equal(t, 15432, db.Port)
+	assert.Equal(t, "admin", db.User)
+	assert.Equal(t, "secret123", db.Password)
 	assert.Equal(t, "prod/daily/", db.BackupPrefix)
 
 	// Verify R2 config
@@ -676,18 +874,25 @@ func TestConfig_FullConfig(t *testing.T) {
 	assert.True(t, cfg.NotifyOnFailure)
 }
 
-func TestLoad_NoDatabaseConnections(t *testing.T) {
-	env := map[string]string{
-		"INPUT_DATABASE_TYPE":        "postgres",
-		"INPUT_R2_ACCOUNT_ID":        "account123",
-		"INPUT_R2_ACCESS_KEY_ID":     "accesskey",
-		"INPUT_R2_SECRET_ACCESS_KEY": "secretkey",
-		"INPUT_R2_BUCKET_NAME":       "my-bucket",
-	}
-	setTestEnv(t, env)
+func TestParseConnectionString_ValidPostgres(t *testing.T) {
+	parsed, err := parseConnectionString("postgres://user:pass@host:5432/dbname", DatabaseTypePostgres)
+	require.NoError(t, err)
+	assert.Equal(t, "host", parsed.Host)
+	assert.Equal(t, 5432, parsed.Port)
+	assert.Equal(t, "user", parsed.User)
+	assert.Equal(t, "pass", parsed.Password)
+	assert.Equal(t, "dbname", parsed.Name)
+}
 
-	cfg, err := Load()
-	assert.Error(t, err)
-	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "no database connections configured")
+func TestParseConnectionString_WithQueryParams(t *testing.T) {
+	parsed, err := parseConnectionString("postgres://user:pass@host:5432/dbname?sslmode=require&timeout=30", DatabaseTypePostgres)
+	require.NoError(t, err)
+	assert.Equal(t, "dbname", parsed.Name)
+}
+
+func TestParseConnectionString_SpecialCharsInPassword(t *testing.T) {
+	// URL-encoded password with special characters
+	parsed, err := parseConnectionString("postgres://user:p%40ss%3Aw%2Frd@host:5432/dbname", DatabaseTypePostgres)
+	require.NoError(t, err)
+	assert.Equal(t, "p@ss:w/rd", parsed.Password)
 }

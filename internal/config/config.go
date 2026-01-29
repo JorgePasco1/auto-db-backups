@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -16,6 +17,14 @@ const (
 	DatabaseTypeMySQL    DatabaseType = "mysql"
 	DatabaseTypeMongoDB  DatabaseType = "mongodb"
 )
+
+// DatabaseJSONEntry represents a single database in the DATABASES_JSON array
+type DatabaseJSONEntry struct {
+	Connection string `json:"connection"`
+	Name       string `json:"name,omitempty"`
+	Prefix     string `json:"prefix,omitempty"`
+	Type       string `json:"type,omitempty"`
+}
 
 // DatabaseConfig holds settings for a single database to back up
 type DatabaseConfig struct {
@@ -57,22 +66,22 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{}
 
-	// Determine database type (shared across all connections)
+	// Determine global database type (used as default)
 	dbType := getInput("database_type")
-	var parsedDBType DatabaseType
+	var globalDBType DatabaseType
 	switch strings.ToLower(dbType) {
 	case "postgres", "postgresql", "":
-		parsedDBType = DatabaseTypePostgres // Default to postgres
+		globalDBType = DatabaseTypePostgres // Default to postgres
 	case "mysql", "mariadb":
-		parsedDBType = DatabaseTypeMySQL
+		globalDBType = DatabaseTypeMySQL
 	case "mongodb", "mongo":
-		parsedDBType = DatabaseTypeMongoDB
+		globalDBType = DatabaseTypeMongoDB
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
 
-	// Load database connections
-	databases, err := loadDatabaseConfigs(parsedDBType)
+	// Load database connections from JSON
+	databases, err := loadDatabaseConfigs(globalDBType)
 	if err != nil {
 		return nil, err
 	}
@@ -115,26 +124,57 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// loadDatabaseConfigs loads multiple database configurations
-// It looks for DATABASE_CONNECTION_1, DATABASE_CONNECTION_2, etc.
-// Falls back to single CONNECTION_STRING for backward compatibility
-func loadDatabaseConfigs(dbType DatabaseType) ([]DatabaseConfig, error) {
+// loadDatabaseConfigs loads database configurations from DATABASES_JSON
+func loadDatabaseConfigs(globalDBType DatabaseType) ([]DatabaseConfig, error) {
+	jsonStr := getInput("databases_json")
+	if jsonStr == "" {
+		return nil, fmt.Errorf("DATABASES_JSON is required")
+	}
+
+	var entries []DatabaseJSONEntry
+	if err := json.Unmarshal([]byte(jsonStr), &entries); err != nil {
+		return nil, fmt.Errorf("invalid DATABASES_JSON: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("DATABASES_JSON must contain at least one database")
+	}
+
 	var databases []DatabaseConfig
-
-	// Try numbered connections first: DATABASE_CONNECTION_1, DATABASE_CONNECTION_2, etc.
-	for i := 1; ; i++ {
-		connStr := getInput(fmt.Sprintf("database_connection_%d", i))
-		if connStr == "" {
-			break
+	for i, entry := range entries {
+		if entry.Connection == "" {
+			return nil, fmt.Errorf("database %d: connection is required", i+1)
 		}
 
-		// Use custom name if provided, otherwise parse from connection string
-		dbName := getInput(fmt.Sprintf("database_name_%d", i))
+		// Determine database type for this entry
+		dbType := globalDBType
+		if entry.Type != "" {
+			switch strings.ToLower(entry.Type) {
+			case "postgres", "postgresql":
+				dbType = DatabaseTypePostgres
+			case "mysql", "mariadb":
+				dbType = DatabaseTypeMySQL
+			case "mongodb", "mongo":
+				dbType = DatabaseTypeMongoDB
+			default:
+				return nil, fmt.Errorf("database %d: unsupported type: %s", i+1, entry.Type)
+			}
+		}
+
+		// Parse connection string to extract components
+		parsed, err := parseConnectionString(entry.Connection, dbType)
+		if err != nil {
+			return nil, fmt.Errorf("database %d: %w", i+1, err)
+		}
+
+		// Use custom name if provided, otherwise use parsed name
+		dbName := entry.Name
 		if dbName == "" {
-			dbName = parseDatabaseNameFromConnectionString(connStr)
+			dbName = parsed.Name
 		}
 
-		prefix := getInput(fmt.Sprintf("database_prefix_%d", i))
+		// Build backup prefix
+		prefix := entry.Prefix
 		if prefix == "" {
 			prefix = fmt.Sprintf("backups/%s/", dbName)
 		}
@@ -144,76 +184,74 @@ func loadDatabaseConfigs(dbType DatabaseType) ([]DatabaseConfig, error) {
 
 		databases = append(databases, DatabaseConfig{
 			Type:             dbType,
-			ConnectionString: connStr,
+			Host:             parsed.Host,
+			Port:             parsed.Port,
 			Name:             dbName,
-			Port:             defaultPort(dbType),
+			User:             parsed.User,
+			Password:         parsed.Password,
+			ConnectionString: entry.Connection,
 			BackupPrefix:     prefix,
 		})
-	}
-
-	// If no numbered connections found, fall back to single connection_string
-	if len(databases) == 0 {
-		connStr := getInput("connection_string")
-		if connStr != "" {
-			// Use custom name if provided, otherwise parse from connection string
-			dbName := getInput("database_name")
-			if dbName == "" {
-				dbName = parseDatabaseNameFromConnectionString(connStr)
-			}
-
-			prefix := getInput("backup_prefix")
-			if prefix != "" && !strings.HasSuffix(prefix, "/") {
-				prefix += "/"
-			}
-
-			databases = append(databases, DatabaseConfig{
-				Type:             dbType,
-				ConnectionString: connStr,
-				Name:             dbName,
-				Port:             defaultPort(dbType),
-				BackupPrefix:     prefix,
-			})
-		}
-	}
-
-	// If still no connections, try individual parameters (legacy support)
-	if len(databases) == 0 {
-		host := getInput("database_host")
-		if host != "" {
-			prefix := getInput("backup_prefix")
-			if prefix != "" && !strings.HasSuffix(prefix, "/") {
-				prefix += "/"
-			}
-
-			databases = append(databases, DatabaseConfig{
-				Type:         dbType,
-				Host:         host,
-				Port:         getInputInt("database_port", defaultPort(dbType)),
-				Name:         getInput("database_name"),
-				User:         getInput("database_user"),
-				Password:     getInput("database_password"),
-				BackupPrefix: prefix,
-			})
-		}
-	}
-
-	if len(databases) == 0 {
-		return nil, fmt.Errorf("no database connections configured. Set DATABASE_CONNECTION_1 or CONNECTION_STRING")
 	}
 
 	return databases, nil
 }
 
+// parsedConnection holds components extracted from a connection string
+type parsedConnection struct {
+	Host     string
+	Port     int
+	Name     string
+	User     string
+	Password string
+}
+
+// parseConnectionString extracts host, port, user, password, and database name from a connection URL
+func parseConnectionString(connStr string, dbType DatabaseType) (*parsedConnection, error) {
+	u, err := url.Parse(connStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid connection string: %w", err)
+	}
+
+	parsed := &parsedConnection{
+		Port: defaultPort(dbType),
+	}
+
+	// Extract host and port
+	parsed.Host = u.Hostname()
+	if portStr := u.Port(); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			parsed.Port = port
+		}
+	}
+
+	// Extract user and password
+	if u.User != nil {
+		parsed.User = u.User.Username()
+		if pwd, ok := u.User.Password(); ok {
+			parsed.Password = pwd
+		}
+	}
+
+	// Extract database name from path
+	parsed.Name = strings.TrimPrefix(u.Path, "/")
+	// Remove any query parameters from database name (shouldn't happen with proper URL parsing, but be safe)
+	if idx := strings.Index(parsed.Name, "?"); idx >= 0 {
+		parsed.Name = parsed.Name[:idx]
+	}
+
+	return parsed, nil
+}
+
 func (c *Config) Validate() error {
 	// Validate each database config
 	for i, db := range c.Databases {
-		if db.ConnectionString == "" {
-			if db.Host == "" {
-				return fmt.Errorf("database %d: host is required when connection_string is not provided", i+1)
-			}
-			if db.Name == "" {
-				return fmt.Errorf("database %d: name is required when connection_string is not provided", i+1)
-			}
+		if db.Name == "" {
+			return fmt.Errorf("database %d: name could not be determined from connection string", i+1)
+		}
+		// For MySQL, we need host to be set since mysqldump doesn't accept connection URLs
+		if db.Type == DatabaseTypeMySQL && db.Host == "" {
+			return fmt.Errorf("database %d: host could not be parsed from connection string", i+1)
 		}
 	}
 
@@ -283,22 +321,4 @@ func defaultPort(dbType DatabaseType) int {
 	default:
 		return 0
 	}
-}
-
-func parseDatabaseNameFromConnectionString(connStr string) string {
-	// Try to parse as URL
-	u, err := url.Parse(connStr)
-	if err != nil {
-		return ""
-	}
-
-	// Database name is typically the path without leading slash
-	dbName := strings.TrimPrefix(u.Path, "/")
-
-	// Remove any query parameters (e.g., ?sslmode=require)
-	if idx := strings.Index(dbName, "?"); idx >= 0 {
-		dbName = dbName[:idx]
-	}
-
-	return dbName
 }
