@@ -71,7 +71,7 @@ Cloudflare R2 is an S3-compatible object storage service with zero egress fees, 
 
 ### Step 2: Get Your Database Connection String
 
-**⚠️ Important for PostgreSQL:** Always use **direct (non-pooled) connection strings**. Pooled connections (via PgBouncer, Supavisor, etc.) are incompatible with `pg_dump` and will cause backup failures.
+**Important for PostgreSQL:** Always use **direct (non-pooled) connection strings**. Pooled connections (via PgBouncer, Supavisor, etc.) are incompatible with `pg_dump` and will cause backup failures.
 
 #### For Neon (PostgreSQL)
 
@@ -136,18 +136,35 @@ Add the following secrets to your GitHub repository:
 | `R2_ACCESS_KEY_ID` | R2 API access key | From Step 1.4 above |
 | `R2_SECRET_ACCESS_KEY` | R2 API secret key | From Step 1.4 above |
 | `R2_BUCKET_NAME` | Your R2 bucket name | From Step 1.3 above (e.g., `db-backups`) |
-| `DATABASE_CONNECTION_1` | Your database connection string | From Step 2 above |
-| `DATABASE_NAME_1` | Friendly name for backups | Any name (e.g., `my-app-prod`) |
+| `DATABASES_JSON` | JSON array of databases | See format below |
 | `ENCRYPTION_KEY` | Base64 encryption key | From Step 3 above (optional) |
 
-Using the GitHub CLI (faster):
+#### DATABASES_JSON Format
+
+The `DATABASES_JSON` secret is a JSON array containing your database configurations:
+
+```json
+[{"connection": "postgresql://user:pass@host:5432/db1", "name": "my-app-prod"},{"connection": "postgresql://user:pass@host2:5432/db2", "name": "my-app-staging"}]
+```
+
+Each database object supports:
+- `connection` (required): Full connection string URL
+- `name` (optional): Custom name for backup files (defaults to database name from URL)
+- `prefix` (optional): Custom R2 prefix path (defaults to `backups/{name}/`)
+- `type` (optional): Database type override (`postgres`, `mysql`, `mongodb`)
+
+**Important for GitHub Secrets:**
+- Do NOT wrap the JSON in quotes
+- The JSON must be on a **single line** with no line breaks
+- Copy the JSON exactly as shown above
+
+Using the GitHub CLI:
 ```bash
 gh secret set R2_ACCOUNT_ID --body "your-account-id"
 gh secret set R2_ACCESS_KEY_ID --body "your-access-key"
 gh secret set R2_SECRET_ACCESS_KEY --body "your-secret-key"
 gh secret set R2_BUCKET_NAME --body "db-backups"
-gh secret set DATABASE_CONNECTION_1 --body "postgresql://..."
-gh secret set DATABASE_NAME_1 --body "my-app-prod"
+gh secret set DATABASES_JSON --body '[{"connection": "postgresql://user:pass@host:5432/dbname", "name": "my-app-prod"}]'
 gh secret set ENCRYPTION_KEY --body "your-base64-key"
 ```
 
@@ -155,7 +172,6 @@ gh secret set ENCRYPTION_KEY --body "your-base64-key"
 
 The forked repository already includes `.github/workflows/backup-databases.yml` which is configured to:
 - Run daily at 2 AM UTC (`cron: '0 2 * * *'`)
-- Back up 3 databases (you can add more by adding `DATABASE_CONNECTION_4`, etc.)
 - Use PostgreSQL 17
 
 **To customize the workflow:**
@@ -166,12 +182,7 @@ The forked repository already includes `.github/workflows/backup-databases.yml` 
    schedule:
      - cron: '0 2 * * *'  # Change time here (UTC)
    ```
-3. Add more database connections:
-   ```yaml
-   DATABASE_CONNECTION_4: ${{ secrets.DATABASE_CONNECTION_4 }}
-   DATABASE_NAME_4: ${{ secrets.DATABASE_NAME_4 }}
-   ```
-4. Adjust retention settings:
+3. Adjust retention settings:
    ```yaml
    RETENTION_DAYS: 7      # Keep backups for 7 days
    RETENTION_COUNT: 30    # Keep last 30 backups
@@ -199,6 +210,7 @@ The forked repository already includes `.github/workflows/backup-databases.yml` 
    - **Access denied**: Verify your R2 API token has read/write permissions
    - **Command not found**: Make sure the workflow has the correct Go version
    - **"pg_dump failed" or "bad connection"**: You're likely using a pooled connection string. Switch to a direct connection (see Step 2 above)
+   - **"invalid DATABASES_JSON"**: Ensure the JSON is valid, on a single line, and without surrounding quotes
 
 ### Optional: Set Up Notifications
 
@@ -253,8 +265,7 @@ Now you'll receive notifications for all backup operations.
    gh secret set R2_ACCESS_KEY_ID --body "your-access-key"
    gh secret set R2_SECRET_ACCESS_KEY --body "your-secret-key"
    gh secret set R2_BUCKET_NAME --body "db-backups"
-   gh secret set DATABASE_CONNECTION_1 --body "postgresql://..."
-   gh secret set DATABASE_NAME_1 --body "my-app-prod"
+   gh secret set DATABASES_JSON --body '[{"connection": "postgresql://user:pass@host:5432/dbname", "name": "my-app-prod"}]'
    gh secret set ENCRYPTION_KEY --body "$(openssl rand -base64 32)"
    ```
 
@@ -293,13 +304,14 @@ R2_SECRET_ACCESS_KEY=your-secret-access-key
 R2_BUCKET_NAME=db-backups
 
 DATABASE_TYPE=postgres
-DATABASE_CONNECTION_1=postgresql://user:pass@host:5432/dbname
-DATABASE_NAME_1=my-app-prod
+DATABASES_JSON='[{"connection": "postgresql://user:pass@host:5432/dbname", "name": "my-app-prod"}]'
 
 ENCRYPTION_KEY=your-base64-encryption-key
 COMPRESSION=true
 RETENTION_DAYS=7
 ```
+
+**Note:** In `.env` files, wrap the JSON in single quotes to prevent shell expansion. In GitHub Secrets, do NOT use quotes.
 
 3. **Install Go** (if not already installed):
 ```bash
@@ -334,7 +346,7 @@ Example:
 ./scripts/sync-database.sh my-app-prod
 ```
 
-This uses the `--database` flag to filter which database to backup. The database name must match the `DATABASE_NAME_1` (or `DATABASE_NAME_2`, etc.) value in your `.env` file.
+This uses the `--database` flag to filter which database to backup. The database name must match the `name` field in your `DATABASES_JSON` configuration.
 
 **Common use cases:**
 - Test a single database configuration before enabling all backups
@@ -356,19 +368,28 @@ This uses the `--database` flag to filter which database to backup. The database
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key |
 | `R2_BUCKET_NAME` | Bucket name for storing backups |
 
-#### Database Connections
-
-For multiple databases, use numbered suffixes:
+#### Database Configuration
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_TYPE` | `postgres`, `mysql`, or `mongodb` (default: `postgres`) |
-| `DATABASE_CONNECTION_1` | Connection string for first database |
-| `DATABASE_NAME_1` | Custom name for backup files (optional) |
-| `DATABASE_PREFIX_1` | Custom R2 prefix path (optional) |
-| `DATABASE_CONNECTION_2` | Connection string for second database |
-| `DATABASE_NAME_2` | Custom name for second database |
-| ... | Add more as needed |
+| `DATABASE_TYPE` | Global default: `postgres`, `mysql`, or `mongodb` (default: `postgres`) |
+| `DATABASES_JSON` | JSON array of database configurations (see below) |
+
+**DATABASES_JSON format:**
+
+```json
+[
+  {"connection": "postgresql://user:pass@host:5432/db1", "name": "prod-db"},
+  {"connection": "postgresql://user:pass@host:5432/db2", "name": "staging-db", "prefix": "staging/"},
+  {"connection": "mysql://user:pass@host:3306/db3", "type": "mysql"}
+]
+```
+
+Each database object:
+- `connection` (required): Full connection string URL
+- `name` (optional): Custom name for backup files (defaults to database name from URL)
+- `prefix` (optional): Custom R2 prefix path (defaults to `backups/{name}/`)
+- `type` (optional): Per-database type override (`postgres`, `mysql`, `mongodb`)
 
 Connection string formats:
 ```
@@ -380,6 +401,7 @@ mysql://user:password@host:3306/dbname
 
 # MongoDB
 mongodb://user:password@host:27017/dbname
+mongodb+srv://user:password@cluster.mongodb.net/dbname
 ```
 
 **Important:** For PostgreSQL, always use direct connection strings. Connection poolers (PgBouncer, Supavisor, etc.) are incompatible with `pg_dump`.
@@ -411,18 +433,19 @@ Store this key securely - you'll need it to decrypt backups.
 
 ## Adding a New Database
 
-To add another database to your backups:
+To add another database to your backups, update your `DATABASES_JSON` secret:
 
-1. Add secrets:
-```bash
-gh secret set DATABASE_CONNECTION_4
-gh secret set DATABASE_NAME_4 --body "new-database"
+1. Get your current value and add a new entry:
+```json
+[
+  {"connection": "postgresql://...", "name": "existing-db"},
+  {"connection": "postgresql://...", "name": "new-database"}
+]
 ```
 
-2. Add to workflow env section:
-```yaml
-DATABASE_CONNECTION_4: ${{ secrets.DATABASE_CONNECTION_4 }}
-DATABASE_NAME_4: ${{ secrets.DATABASE_NAME_4 }}
+2. Update the secret:
+```bash
+gh secret set DATABASES_JSON --body '[{"connection": "postgresql://...", "name": "existing-db"},{"connection": "postgresql://...", "name": "new-database"}]'
 ```
 
 ## Backup File Naming
@@ -692,9 +715,8 @@ The CI workflow (`.github/workflows/ci.yml`) runs:
 ## Environment Variable Resolution
 
 The config loader checks multiple sources in order:
-1. `INPUT_*` prefixed variables (GitHub Actions convention)
-2. Regular environment variables
-3. Numbered suffixes for multi-database support (`DATABASE_CONNECTION_1`, `DATABASE_CONNECTION_2`, etc.)
+1. Regular environment variables (e.g., `DATABASES_JSON`)
+2. `INPUT_*` prefixed variables (GitHub Actions convention, e.g., `INPUT_DATABASES_JSON`)
 
 ## Error Handling
 
